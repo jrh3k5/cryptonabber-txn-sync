@@ -4,23 +4,24 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
 	"strings"
+
+	ctshttp "github.com/jrh3k5/cryptonabber-txn-sync/internal/http"
 )
 
 // rpcDetailsService implements DetailsService by calling an RPC node.
 type rpcDetailsService struct {
-	client *http.Client
+	doer   ctshttp.Doer
 	rpcURL string
 }
 
 // NewRPCDetailsService returns a DetailsService that uses the provided HTTP client
 // and RPC node URL to perform JSON-RPC calls.
-func NewRPCDetailsService(client *http.Client, rpcURL string) DetailsService {
-	return &rpcDetailsService{client: client, rpcURL: rpcURL}
+func NewRPCDetailsService(client ctshttp.Doer, rpcURL string) DetailsService {
+	return &rpcDetailsService{doer: client, rpcURL: rpcURL}
 }
 
 type rpcRequest struct {
@@ -45,9 +46,6 @@ type rpcResponse struct {
 // GetTokenDetails fetches the token decimals by calling the `decimals()` ERC20 method
 // using `eth_call` on the RPC node. If no result is returned, it returns (nil, nil).
 func (r *rpcDetailsService) GetTokenDetails(ctx context.Context, contractAddress string) (*Details, error) {
-	if r.client == nil {
-		return nil, errors.New("http client is nil")
-	}
 	// decimals() selector
 	data := "0x313ce567"
 
@@ -75,7 +73,7 @@ func (r *rpcDetailsService) GetTokenDetails(ctx context.Context, contractAddress
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := r.client.Do(httpReq)
+	resp, err := r.doer.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("rpc call: %w", err)
 	}
