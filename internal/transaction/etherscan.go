@@ -3,7 +3,6 @@ package transaction
 import (
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -63,10 +62,6 @@ func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details,
 	timeIdx, timeFound := hdrIdx["datetime (utc)"]
 	if !timeFound {
 		return nil, fmt.Errorf("CSV is missing required column: DateTime (UTC) from available columns: [%s]", strings.Join(header, ", "))
-	}
-
-	if !(txFound && fromFound && toFound && amountFound && timeFound) {
-		return nil, errors.New("csv is missing one or more required columns: Transaction Hash, From, To, Amount, DateTime (UTC)")
 	}
 
 	var transfers []Transfer
