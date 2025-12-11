@@ -111,7 +111,11 @@ var _ = Describe("rpcDetailsService", func() {
 
 	When("HTTP response is non-200", func() {
 		It("returns an error", func() {
-			httpmock.RegisterResponder("POST", rpcURL, httpmock.NewStringResponder(500, "internal server error"))
+			httpmock.RegisterResponder(
+				"POST",
+				rpcURL,
+				httpmock.NewStringResponder(500, "internal server error"),
+			)
 			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
 			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
 			Expect(d).To(BeNil())
@@ -122,7 +126,11 @@ var _ = Describe("rpcDetailsService", func() {
 
 	When("there is a network error from the HTTP client", func() {
 		It("returns an error", func() {
-			httpmock.RegisterResponder("POST", rpcURL, httpmock.NewErrorResponder(fmt.Errorf("network error")))
+			httpmock.RegisterResponder(
+				"POST",
+				rpcURL,
+				httpmock.NewErrorResponder(fmt.Errorf("network error")),
+			)
 			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
 			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
 			Expect(d).To(BeNil())
@@ -132,27 +140,28 @@ var _ = Describe("rpcDetailsService", func() {
 		})
 	})
 
-	When("various hex result forms are returned", func() {
-		It("parses them correctly", func() {
-			cases := []struct {
-				resultHex string
-				expected  *int
-			}{
-				{"0x12", func() *int { v := 18; return &v }()},
-				{"0x0012", func() *int { v := 18; return &v }()},
-				{"0x0000000000000000000000000000000000000000000000000000000000000014", func() *int { v := 20; return &v }()},
-			}
-
-			for _, c := range cases {
-				httpmock.RegisterResponder("POST", rpcURL, httpmock.NewStringResponder(200, `{"jsonrpc":"2.0","id":1,"result":"`+c.resultHex+`"}`))
-				svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-				d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
-				Expect(err).ToNot(HaveOccurred())
-				Expect(d).ToNot(BeNil())
-				Expect(d.Decimals).To(Equal(*c.expected))
-				httpmock.Reset()
-			}
-		})
-	})
-
+	DescribeTable("various hex results", func(resultHex string, expectedDecimals int) {
+		httpmock.RegisterResponder(
+			"POST",
+			rpcURL,
+			httpmock.NewStringResponder(
+				200,
+				`{"jsonrpc":"2.0","id":1,"result":"`+resultHex+`"}`,
+			),
+		)
+		svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
+		d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(d).ToNot(BeNil())
+		Expect(d.Decimals).To(Equal(expectedDecimals))
+		httpmock.Reset()
+	},
+		Entry("single byte", "0x12", 18),
+		Entry("padded two bytes", "0x0012", 18),
+		Entry(
+			"padded 32 bytes",
+			"0x0000000000000000000000000000000000000000000000000000000000000014",
+			20,
+		),
+	)
 })

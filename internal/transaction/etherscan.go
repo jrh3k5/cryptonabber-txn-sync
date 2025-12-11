@@ -9,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
-
 	ctsio "github.com/jrh3k5/cryptonabber-txn-sync/internal/io"
+	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 )
 
 // TransfersFromEtherscanCSV parses the given Etherscan CSV data representing activity for the given token details and returns a slice of Transfers.
@@ -21,7 +20,11 @@ import (
 // - To, which is the address that received the token in hex
 // - Amount, which is the amount of tokens transferred in the token's base unit
 // - DateTime (UTC), which is the time the transaction was executed in UTC
-func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details, csvReader io.Reader) ([]Transfer, error) {
+func TransfersFromEtherscanCSV(
+	ctx context.Context,
+	tokenDetails *token.Details,
+	csvReader io.Reader,
+) ([]Transfer, error) {
 	// wrap the reader to strip a leading UTF-8 BOM (U+FEFF) if present
 	r := csv.NewReader(ctsio.StripUTF8BOM(csvReader))
 	r.TrimLeadingSpace = true
@@ -41,27 +44,42 @@ func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details,
 
 	txIdx, txFound := hdrIdx["transaction hash"]
 	if !txFound {
-		return nil, fmt.Errorf("CSV is missing required column: Transaction Hash from available columns: [%s]", strings.Join(header, ", "))
+		return nil, fmt.Errorf(
+			"CSV is missing required column: Transaction Hash from available columns: [%s]",
+			strings.Join(header, ", "),
+		)
 	}
 
 	fromIdx, fromFound := hdrIdx["from"]
 	if !fromFound {
-		return nil, fmt.Errorf("CSV is missing required column: From from available columns: [%s]", strings.Join(header, ", "))
+		return nil, fmt.Errorf(
+			"CSV is missing required column: From from available columns: [%s]",
+			strings.Join(header, ", "),
+		)
 	}
 
 	toIdx, toFound := hdrIdx["to"]
 	if !toFound {
-		return nil, fmt.Errorf("CSV is missing required column: To from available columns: [%s]", strings.Join(header, ", "))
+		return nil, fmt.Errorf(
+			"CSV is missing required column: To from available columns: [%s]",
+			strings.Join(header, ", "),
+		)
 	}
 
 	amountIdx, amountFound := hdrIdx["amount"]
 	if !amountFound {
-		return nil, fmt.Errorf("CSV is missing required column: Amount from available columns: [%s]", strings.Join(header, ", "))
+		return nil, fmt.Errorf(
+			"CSV is missing required column: Amount from available columns: [%s]",
+			strings.Join(header, ", "),
+		)
 	}
 
 	timeIdx, timeFound := hdrIdx["datetime (utc)"]
 	if !timeFound {
-		return nil, fmt.Errorf("CSV is missing required column: DateTime (UTC) from available columns: [%s]", strings.Join(header, ", "))
+		return nil, fmt.Errorf(
+			"CSV is missing required column: DateTime (UTC) from available columns: [%s]",
+			strings.Join(header, ", "),
+		)
 	}
 
 	var transfers []Transfer
@@ -81,7 +99,9 @@ func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details,
 		}
 
 		// protect against short records
-		if txIdx >= len(record) || fromIdx >= len(record) || toIdx >= len(record) || amountIdx >= len(record) || timeIdx >= len(record) {
+		if txIdx >= len(record) || fromIdx >= len(record) || toIdx >= len(record) ||
+			amountIdx >= len(record) ||
+			timeIdx >= len(record) {
 			return nil, fmt.Errorf("malformed csv record: %v", record)
 		}
 
@@ -143,7 +163,12 @@ func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details,
 		// parse time using the known layouts
 		executionTime, err := time.Parse("2006-01-02 15:04:05", timeStr)
 		if err != nil {
-			return nil, fmt.Errorf("parse execution time %q for transaction hash %q: %w", timeStr, txHash, err)
+			return nil, fmt.Errorf(
+				"parse execution time %q for transaction hash %q: %w",
+				timeStr,
+				txHash,
+				err,
+			)
 		}
 
 		transfers = append(transfers, Transfer{

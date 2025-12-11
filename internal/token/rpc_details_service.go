@@ -45,7 +45,10 @@ type rpcResponse struct {
 
 // GetTokenDetails fetches the token decimals by calling the `decimals()` ERC20 method
 // using `eth_call` on the RPC node. If no result is returned, it returns (nil, nil).
-func (r *rpcDetailsService) GetTokenDetails(ctx context.Context, contractAddress string) (*Details, error) {
+func (r *rpcDetailsService) GetTokenDetails(
+	ctx context.Context,
+	contractAddress string,
+) (*Details, error) {
 	// decimals() selector
 	data := "0x313ce567"
 
@@ -67,7 +70,12 @@ func (r *rpcDetailsService) GetTokenDetails(ctx context.Context, contractAddress
 		return nil, fmt.Errorf("marshal rpc request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, r.rpcURL, strings.NewReader(string(b)))
+	httpReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		r.rpcURL,
+		strings.NewReader(string(b)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -77,7 +85,7 @@ func (r *rpcDetailsService) GetTokenDetails(ctx context.Context, contractAddress
 	if err != nil {
 		return nil, fmt.Errorf("rpc call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var rpcResp rpcResponse
 	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
