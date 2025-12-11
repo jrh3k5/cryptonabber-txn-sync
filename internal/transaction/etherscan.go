@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
+
+	ctsio "github.com/jrh3k5/cryptonabber-txn-sync/internal/io"
 )
 
 // TransfersFromEtherscanCSV parses the given Etherscan CSV data representing activity for the given token details and returns a slice of Transfers.
@@ -21,7 +23,8 @@ import (
 // - Amount, which is the amount of tokens transferred in the token's base unit
 // - DateTime (UTC), which is the time the transaction was executed in UTC
 func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details, csvReader io.Reader) ([]Transfer, error) {
-	r := csv.NewReader(csvReader)
+	// wrap the reader to strip a leading UTF-8 BOM (U+FEFF) if present
+	r := csv.NewReader(ctsio.StripUTF8BOM(csvReader))
 	r.TrimLeadingSpace = true
 
 	// read header
@@ -68,12 +71,6 @@ func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details,
 
 	var transfers []Transfer
 
-	// try multiple time layouts
-	layouts := []string{
-		time.RFC3339,
-		"2006-01-02 15:04:05",
-	}
-
 	for {
 		record, err := r.Read()
 		if err == io.EOF {
@@ -100,35 +97,65 @@ func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details,
 		timeStr := strings.TrimSpace(record[timeIdx])
 
 		// parse amount as integer in base units
-		amt := new(big.Int)
+		totalAmount := new(big.Int)
 		if amountStr == "" {
-			amt = nil
+			return nil, fmt.Errorf("transaction hash %q has empty amount field", txHash)
 		} else {
-			// remove commas if present
-			cleaned := strings.ReplaceAll(amountStr, ",", "")
-			if _, ok := amt.SetString(cleaned, 10); !ok {
-				return nil, fmt.Errorf("parse amount %q: invalid integer", amountStr)
+			wholeTokens := new(big.Int)
+			fracTokens := new(big.Int)
+			fracTokensLength := 0
+			if strings.Contains(amountStr, ".") {
+				parts := strings.SplitN(amountStr, ".", 2)
+				var ok bool
+				wholeTokens, ok = wholeTokens.SetString(parts[0], 10)
+				if !ok {
+					return nil, fmt.Errorf("parse whole token amount %q for transaction hash %q: invalid integer", parts[0], txHash)
+				}
+
+				fracTokensString := parts[1]
+				// Trim off any trailing zeroes to avoid over-expanding
+				fracTokensString = strings.TrimRight(fracTokensString, "0")
+
+				fracTokensLength = len(fracTokensString)
+				fracTokens, ok = fracTokens.SetString(fracTokensString, 10)
+				if !ok {
+					return nil, fmt.Errorf("parse fractional token amount %q for transaction hash %q: invalid integer", parts[1], txHash)
+				}
+			} else {
+				var ok bool
+				wholeTokens, ok = wholeTokens.SetString(amountStr, 10)
+				if !ok {
+					return nil, fmt.Errorf("parse whole token amount %q for transaction hash %q: invalid integer", amountStr, txHash)
+				}
+			}
+
+			// Expand the whole tokens out to base units
+			if wholeTokens.Cmp(big.NewInt(0)) == 1 {
+				totalAmount = new(big.Int).Mul(wholeTokens, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil))
+			}
+
+			if fracTokens.Cmp(big.NewInt(0)) == 1 {
+				exponent := tokenDetails.Decimals - fracTokensLength
+				if exponent < 0 {
+					return nil, fmt.Errorf("fractional token amount %q for transaction hash %q has more decimal places than token supports", amountStr, txHash)
+				}
+
+				fracBaseUnits := new(big.Int).Mul(fracTokens, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exponent)), nil))
+				totalAmount = totalAmount.Add(totalAmount, fracBaseUnits)
 			}
 		}
 
 		// parse time using the known layouts
-		var execTime time.Time
-		var tErr error
-		for _, lay := range layouts {
-			execTime, tErr = time.Parse(lay, timeStr)
-			if tErr == nil {
-				break
-			}
-		}
-		if tErr != nil {
-			return nil, fmt.Errorf("parse time %q: %w", timeStr, tErr)
+		executionTime, err := time.Parse("2006-01-02 15:04:05", timeStr)
+		if err != nil {
+			return nil, fmt.Errorf("parse execution time %q for transaction hash %q: %w", timeStr, txHash, err)
 		}
 
 		transfers = append(transfers, Transfer{
 			FromAddress:     from,
 			ToAddress:       to,
-			Amount:          amt,
-			ExecutionTime:   execTime,
+			Amount:          totalAmount,
+			ExecutionTime:   executionTime,
 			TransactionHash: txHash,
 		})
 	}

@@ -37,10 +37,10 @@ var _ = Describe("TransfersFromEtherscanCSV", func() {
 		Expect(first.TransactionHash).To(Equal("0x3fe67569dfcce1fe4afca58819da01f423b2cb67d61ee3ba1ed413d2612717c7"))
 		Expect(first.FromAddress).To(Equal("0x9134fc7112b478e97eE6F0E6A7bf81EcAfef19ED"))
 		Expect(first.ToAddress).To(Equal("0xC8B0C609712aa852B1E390deD058276fa9bc36f1"))
-		Expect(first.Amount).To(Equal(big.NewInt(10150000))) // 101.5 * 10^6
+		Expect(first.Amount).To(Equal(big.NewInt(101500000))) // 101.5 * 10^6
 
-		expectedTransferTime, err := time.Parse(time.RFC3339, "2025-12-10T11:53:23Z")
+		expectedExecutionTime, err := time.Parse(time.RFC3339, "2025-12-10T11:53:23Z")
 		Expect(err).ToNot(HaveOccurred(), "parsing expected transfer time should not fail")
-		Expect(first.ExecutionTime).To(Equal(expectedTransferTime), "transfer execution time should match expected value")
+		Expect(first.ExecutionTime).To(Equal(expectedExecutionTime), "transfer execution time should match expected value")
 	})
 })
