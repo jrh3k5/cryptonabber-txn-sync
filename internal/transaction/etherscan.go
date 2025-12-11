@@ -9,23 +9,25 @@ import (
 	"math/big"
 	"strings"
 	"time"
+
+	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 )
 
-// TransfersFromEtherscanCSV parses the given Etherscan CSV data and returns a slice of Transfers.
+// TransfersFromEtherscanCSV parses the given Etherscan CSV data representing activity for the given token details and returns a slice of Transfers.
 // It expects the given reader to contain a CSV with the following columns in no given order:
 // - Transaction Hash, which is the hash of the transaction in hex
 // - From, which is the address that sent the token in hex
 // - To, which is the address that received the token in hex
 // - Amount, which is the amount of tokens transferred in the token's base unit
 // - DateTime (UTC), which is the time the transaction was executed in UTC
-func TransfersFromEtherscanCSV(ctx context.Context, csvReader io.Reader) ([]Transfer, error) {
+func TransfersFromEtherscanCSV(ctx context.Context, tokenDetails *token.Details, csvReader io.Reader) ([]Transfer, error) {
 	r := csv.NewReader(csvReader)
 	r.TrimLeadingSpace = true
 
 	// read header
 	header, err := r.Read()
 	if err != nil {
-		return nil, fmt.Errorf("read csv header: %w", err)
+		return nil, fmt.Errorf("failed to read the first line of the CSV: %w", err)
 	}
 
 	// map header names (lowercased, trimmed) to indices
@@ -35,21 +37,30 @@ func TransfersFromEtherscanCSV(ctx context.Context, csvReader io.Reader) ([]Tran
 		hdrIdx[key] = i
 	}
 
-	// helper to find a header by acceptable names
-	find := func(names ...string) (int, bool) {
-		for _, n := range names {
-			if idx, ok := hdrIdx[strings.ToLower(n)]; ok {
-				return idx, true
-			}
-		}
-		return 0, false
+	txIdx, txFound := hdrIdx["transaction hash"]
+	if !txFound {
+		return nil, fmt.Errorf("CSV is missing required column: Transaction Hash from available columns: [%s]", strings.Join(header, ", "))
 	}
 
-	txIdx, txFound := find("transaction hash", "txn hash", "hash")
-	fromIdx, fromFound := find("from")
-	toIdx, toFound := find("to")
-	amountIdx, amountFound := find("amount")
-	timeIdx, timeFound := find("datetime (utc)", "date (utc)", "dateutc", "datetime")
+	fromIdx, fromFound := hdrIdx["from"]
+	if !fromFound {
+		return nil, fmt.Errorf("CSV is missing required column: From from available columns: [%s]", strings.Join(header, ", "))
+	}
+
+	toIdx, toFound := hdrIdx["to"]
+	if !toFound {
+		return nil, fmt.Errorf("CSV is missing required column: To from available columns: [%s]", strings.Join(header, ", "))
+	}
+
+	amountIdx, amountFound := hdrIdx["amount"]
+	if !amountFound {
+		return nil, fmt.Errorf("CSV is missing required column: Amount from available columns: [%s]", strings.Join(header, ", "))
+	}
+
+	timeIdx, timeFound := hdrIdx["datetime (utc)"]
+	if !timeFound {
+		return nil, fmt.Errorf("CSV is missing required column: DateTime (UTC) from available columns: [%s]", strings.Join(header, ", "))
+	}
 
 	if !(txFound && fromFound && toFound && amountFound && timeFound) {
 		return nil, errors.New("csv is missing one or more required columns: Transaction Hash, From, To, Amount, DateTime (UTC)")
@@ -61,8 +72,6 @@ func TransfersFromEtherscanCSV(ctx context.Context, csvReader io.Reader) ([]Tran
 	layouts := []string{
 		time.RFC3339,
 		"2006-01-02 15:04:05",
-		"1/2/2006 15:04:05",
-		"1/2/2006 3:04:05 PM",
 	}
 
 	for {
@@ -71,7 +80,7 @@ func TransfersFromEtherscanCSV(ctx context.Context, csvReader io.Reader) ([]Tran
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read csv record: %w", err)
+			return nil, fmt.Errorf("read CSV record: %w", err)
 		}
 
 		// skip empty records

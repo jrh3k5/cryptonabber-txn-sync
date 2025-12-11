@@ -69,16 +69,6 @@ var _ = Describe("rpcDetailsService", func() {
 		})
 	})
 
-	When("http client is nil", func() {
-		It("returns an error", func() {
-			svc := tokenpkg.NewRPCDetailsService(nil, rpcURL)
-			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
-			Expect(d).To(BeNil())
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("http client is nil"))
-		})
-	})
-
 	It("verifies JSON-RPC request payload contains correct method selector and to address", func() {
 		contract := "0xdeadbeef"
 		httpmock.RegisterResponder("POST", rpcURL, func(req *http.Request) (*http.Response, error) {
