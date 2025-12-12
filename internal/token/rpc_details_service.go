@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"strings"
@@ -98,6 +99,8 @@ func (r *rpcDetailsService) GetTokenDetails(
 
 	res := rpcResp.Result
 	if res == "" || res == "0x" {
+		slog.DebugContext(ctx, fmt.Sprintf("Response of '%s' indicates no data; returning nil for the token details", res))
+
 		// no data found
 		return nil, nil
 	}
@@ -105,6 +108,8 @@ func (r *rpcDetailsService) GetTokenDetails(
 	// strip 0x
 	hexStr := strings.TrimPrefix(res, "0x")
 	if len(hexStr) == 0 {
+		slog.DebugContext(ctx, "Response is empty after stripping 0x; returning nil for the token details")
+
 		return nil, nil
 	}
 	// ensure even length for hex decode
@@ -119,6 +124,8 @@ func (r *rpcDetailsService) GetTokenDetails(
 
 	bi := new(big.Int).SetBytes(decoded)
 	if bi.BitLen() == 0 {
+		slog.DebugContext(ctx, "Response is zero after decoding; returning nil for the token details")
+
 		return nil, nil
 	}
 

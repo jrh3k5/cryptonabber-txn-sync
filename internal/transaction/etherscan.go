@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"strings"
 	"time"
@@ -95,6 +96,8 @@ func TransfersFromEtherscanCSV(
 
 		// skip empty records
 		if len(record) == 0 {
+			slog.DebugContext(ctx, "Row has no values in it; skipping")
+
 			continue
 		}
 
