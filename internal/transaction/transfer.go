@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// Transfer represents a transfer of tokens from one address to another.
 type Transfer struct {
 	FromAddress     string    // the address that sent the token, encoded in hex
 	ToAddress       string    // the address that received the token, encoded in hex

@@ -15,17 +15,24 @@ import (
 
 var _ = Describe("rpcDetailsService", func() {
 	const rpcURL = "http://example.local"
+	var detailsService *tokenpkg.RPCDetailsService
+
+	var ctx context.Context
+
+	BeforeEach(func() {
+		ctx = context.Background()
+
+		detailsService = tokenpkg.NewRPCDetailsService(http.DefaultClient, rpcURL)
+	})
 
 	It("returns decimals on successful response", func() {
 		res := `{"jsonrpc":"2.0","id":1,"result":"0x0000000000000000000000000000000000000000000000000000000000000012"}`
 		httpmock.RegisterResponder("POST", rpcURL, httpmock.NewStringResponder(200, res))
 
-		svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-		d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
+		tokenDetails, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 		Expect(err).ToNot(HaveOccurred())
-		Expect(d).ToNot(BeNil())
-		Expect(d.Decimals).To(Equal(18))
-		httpmock.Reset()
+		Expect(tokenDetails).ToNot(BeNil())
+		Expect(tokenDetails.Decimals).To(Equal(18))
 	})
 
 	When("result is 0x", func() {
@@ -33,11 +40,9 @@ var _ = Describe("rpcDetailsService", func() {
 			res := `{"jsonrpc":"2.0","id":1,"result":"0x"}`
 			httpmock.RegisterResponder("POST", rpcURL, httpmock.NewStringResponder(200, res))
 
-			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
+			tokenDetails, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(d).To(BeNil())
-			httpmock.Reset()
+			Expect(tokenDetails).To(BeNil())
 		})
 	})
 
@@ -46,12 +51,9 @@ var _ = Describe("rpcDetailsService", func() {
 			res := `{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found"}}`
 			httpmock.RegisterResponder("POST", rpcURL, httpmock.NewStringResponder(200, res))
 
-			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
-			Expect(d).To(BeNil())
+			_, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("rpc error"))
-			httpmock.Reset()
 		})
 	})
 
@@ -60,12 +62,9 @@ var _ = Describe("rpcDetailsService", func() {
 			res := `{"jsonrpc":"2.0","id":1,"result":"0xzz"}`
 			httpmock.RegisterResponder("POST", rpcURL, httpmock.NewStringResponder(200, res))
 
-			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
-			Expect(d).To(BeNil())
+			_, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("decode hex result"))
-			httpmock.Reset()
 		})
 	})
 
@@ -73,25 +72,24 @@ var _ = Describe("rpcDetailsService", func() {
 		contract := "0xdeadbeef"
 		httpmock.RegisterResponder("POST", rpcURL, func(req *http.Request) (*http.Response, error) {
 			body, _ := io.ReadAll(req.Body)
-			var payload map[string]interface{}
+			var payload map[string]any
 			_ = json.Unmarshal(body, &payload)
 			Expect(payload["method"]).To(Equal("eth_call"))
-			params, ok := payload["params"].([]interface{})
+			params, ok := payload["params"].([]any)
 			Expect(ok).To(BeTrue())
 			Expect(len(params)).To(BeNumerically(">=", 1))
-			callObj, ok := params[0].(map[string]interface{})
+			callObj, ok := params[0].(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(callObj["to"]).To(Equal(contract))
 			Expect(callObj["data"]).To(Equal("0x313ce567"))
+
 			return httpmock.NewStringResponse(200, `{"jsonrpc":"2.0","id":1,"result":"0x12"}`), nil
 		})
 
-		svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-		d, err := svc.GetTokenDetails(context.Background(), contract)
+		tokenDetails, err := detailsService.GetTokenDetails(ctx, contract)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(d).ToNot(BeNil())
-		Expect(d.Decimals).To(Equal(18))
-		httpmock.Reset()
+		Expect(tokenDetails).ToNot(BeNil())
+		Expect(tokenDetails.Decimals).To(Equal(18))
 	})
 
 	When("decimals value exceeds max int", func() {
@@ -100,12 +98,9 @@ var _ = Describe("rpcDetailsService", func() {
 			res := `{"jsonrpc":"2.0","id":1,"result":"0x8000000000000000"}`
 			httpmock.RegisterResponder("POST", rpcURL, httpmock.NewStringResponder(200, res))
 
-			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
-			Expect(d).To(BeNil())
+			_, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("decimals value too large"))
-			httpmock.Reset()
 		})
 	})
 
@@ -116,11 +111,9 @@ var _ = Describe("rpcDetailsService", func() {
 				rpcURL,
 				httpmock.NewStringResponder(500, "internal server error"),
 			)
-			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
-			Expect(d).To(BeNil())
+
+			_, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 			Expect(err).To(HaveOccurred())
-			httpmock.Reset()
 		})
 	})
 
@@ -131,12 +124,10 @@ var _ = Describe("rpcDetailsService", func() {
 				rpcURL,
 				httpmock.NewErrorResponder(fmt.Errorf("network error")),
 			)
-			svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-			d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
-			Expect(d).To(BeNil())
+
+			_, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("rpc call"))
-			httpmock.Reset()
 		})
 	})
 
@@ -149,12 +140,11 @@ var _ = Describe("rpcDetailsService", func() {
 				`{"jsonrpc":"2.0","id":1,"result":"`+resultHex+`"}`,
 			),
 		)
-		svc := tokenpkg.NewRPCDetailsService(client, rpcURL)
-		d, err := svc.GetTokenDetails(context.Background(), "0xdeadbeef")
+
+		tokenDetails, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")
 		Expect(err).ToNot(HaveOccurred())
-		Expect(d).ToNot(BeNil())
-		Expect(d.Decimals).To(Equal(expectedDecimals))
-		httpmock.Reset()
+		Expect(tokenDetails).ToNot(BeNil())
+		Expect(tokenDetails.Decimals).To(Equal(expectedDecimals))
 	},
 		Entry("single byte", "0x12", 18),
 		Entry("padded two bytes", "0x0012", 18),

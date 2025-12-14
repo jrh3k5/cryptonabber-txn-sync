@@ -8,6 +8,8 @@ import (
 )
 
 func TestEtherscanCSV(t *testing.T) {
+	t.Parallel()
+
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Etherscan CSV Suite")
 }

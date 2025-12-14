@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	ctsbig "github.com/jrh3k5/cryptonabber-txn-sync/internal/big"
 	ctsio "github.com/jrh3k5/cryptonabber-txn-sync/internal/io"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 )
@@ -118,49 +119,70 @@ func TransfersFromEtherscanCSV(
 		totalAmount := new(big.Int)
 		if amountStr == "" {
 			return nil, fmt.Errorf("transaction hash %q has empty amount field", txHash)
+		}
+
+		var wholeTokens *big.Int
+		fracTokens := new(big.Int)
+		fracTokensLength := 0
+		if strings.Contains(amountStr, ".") {
+			parts := strings.SplitN(amountStr, ".", 2) //nolint:mnd
+			var err error
+			wholeTokens, err = ctsbig.BigIntFromString(parts[0])
+			if err != nil {
+				return nil, fmt.Errorf(
+					"parse whole token amount %q for transaction hash %q: %w",
+					parts[0],
+					txHash,
+					err,
+				)
+			}
+
+			fracTokensString := parts[1]
+			// Trim off any trailing zeroes to avoid over-expanding
+			fracTokensString = strings.TrimRight(fracTokensString, "0")
+
+			fracTokensLength = len(fracTokensString)
+
+			fracTokens, err = ctsbig.BigIntFromString(fracTokensString)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"parse fractional token amount %q for transaction hash %q: %w",
+					parts[1],
+					txHash,
+					err,
+				)
+			}
 		} else {
-			wholeTokens := new(big.Int)
-			fracTokens := new(big.Int)
-			fracTokensLength := 0
-			if strings.Contains(amountStr, ".") {
-				parts := strings.SplitN(amountStr, ".", 2)
-				var ok bool
-				wholeTokens, ok = wholeTokens.SetString(parts[0], 10)
-				if !ok {
-					return nil, fmt.Errorf("parse whole token amount %q for transaction hash %q: invalid integer", parts[0], txHash)
-				}
+			var err error
+			wholeTokens, err = ctsbig.BigIntFromString(amountStr)
+			if err != nil {
+				return nil, fmt.Errorf("parse whole token amount %q for transaction hash %q: %w", amountStr, txHash, err)
+			}
+		}
 
-				fracTokensString := parts[1]
-				// Trim off any trailing zeroes to avoid over-expanding
-				fracTokensString = strings.TrimRight(fracTokensString, "0")
+		// Expand the whole tokens out to base units
+		if wholeTokens.Cmp(big.NewInt(0)) == 1 {
+			//nolint:mnd
+			totalAmount = new(
+				big.Int,
+			).Mul(wholeTokens, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil))
+		}
 
-				fracTokensLength = len(fracTokensString)
-				fracTokens, ok = fracTokens.SetString(fracTokensString, 10)
-				if !ok {
-					return nil, fmt.Errorf("parse fractional token amount %q for transaction hash %q: invalid integer", parts[1], txHash)
-				}
-			} else {
-				var ok bool
-				wholeTokens, ok = wholeTokens.SetString(amountStr, 10)
-				if !ok {
-					return nil, fmt.Errorf("parse whole token amount %q for transaction hash %q: invalid integer", amountStr, txHash)
-				}
+		if fracTokens.Cmp(big.NewInt(0)) == 1 {
+			exponent := tokenDetails.Decimals - fracTokensLength
+			if exponent < 0 {
+				return nil, fmt.Errorf(
+					"fractional token amount %q for transaction hash %q has more decimal places than token supports",
+					amountStr,
+					txHash,
+				)
 			}
 
-			// Expand the whole tokens out to base units
-			if wholeTokens.Cmp(big.NewInt(0)) == 1 {
-				totalAmount = new(big.Int).Mul(wholeTokens, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil))
-			}
-
-			if fracTokens.Cmp(big.NewInt(0)) == 1 {
-				exponent := tokenDetails.Decimals - fracTokensLength
-				if exponent < 0 {
-					return nil, fmt.Errorf("fractional token amount %q for transaction hash %q has more decimal places than token supports", amountStr, txHash)
-				}
-
-				fracBaseUnits := new(big.Int).Mul(fracTokens, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exponent)), nil))
-				totalAmount = totalAmount.Add(totalAmount, fracBaseUnits)
-			}
+			//nolint:mnd
+			fracBaseUnits := new(
+				big.Int,
+			).Mul(fracTokens, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(exponent)), nil))
+			totalAmount = totalAmount.Add(totalAmount, fracBaseUnits)
 		}
 
 		// parse time using the known layouts

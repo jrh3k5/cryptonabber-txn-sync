@@ -1,6 +1,19 @@
 version: "2"
 linters:
   default: all
+  disable:
+    - godot
+    - lll
+    - nilnil
+    - noinlineerr
+    - varnamelen
+    - wsl
+    - wsl_v5
+  settings:
+    revive:
+      rules:
+        - name: package-comments
+          disabled: true
 formatters:
   enable:
     - gci

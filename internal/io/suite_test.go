@@ -8,6 +8,8 @@ import (
 )
 
 func TestIO(t *testing.T) {
+	t.Parallel()
+
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Internal IO Suite")
 }

@@ -13,16 +13,16 @@ import (
 	ctshttp "github.com/jrh3k5/cryptonabber-txn-sync/internal/http"
 )
 
-// rpcDetailsService implements DetailsService by calling an RPC node.
-type rpcDetailsService struct {
+// RPCDetailsService implements DetailsService by calling an RPC node.
+type RPCDetailsService struct {
 	doer   ctshttp.Doer
 	rpcURL string
 }
 
 // NewRPCDetailsService returns a DetailsService that uses the provided HTTP client
 // and RPC node URL to perform JSON-RPC calls.
-func NewRPCDetailsService(client ctshttp.Doer, rpcURL string) DetailsService {
-	return &rpcDetailsService{doer: client, rpcURL: rpcURL}
+func NewRPCDetailsService(client ctshttp.Doer, rpcURL string) *RPCDetailsService {
+	return &RPCDetailsService{doer: client, rpcURL: rpcURL}
 }
 
 type rpcRequest struct {
@@ -46,7 +46,7 @@ type rpcResponse struct {
 
 // GetTokenDetails fetches the token decimals by calling the `decimals()` ERC20 method
 // using `eth_call` on the RPC node. If no result is returned, it returns (nil, nil).
-func (r *rpcDetailsService) GetTokenDetails(
+func (r *RPCDetailsService) GetTokenDetails(
 	ctx context.Context,
 	contractAddress string,
 ) (*Details, error) {
@@ -99,7 +99,13 @@ func (r *rpcDetailsService) GetTokenDetails(
 
 	res := rpcResp.Result
 	if res == "" || res == "0x" {
-		slog.DebugContext(ctx, fmt.Sprintf("Response of '%s' indicates no data; returning nil for the token details", res))
+		slog.DebugContext(
+			ctx,
+			fmt.Sprintf(
+				"Response of '%s' indicates no data; returning nil for the token details",
+				res,
+			),
+		)
 
 		// no data found
 		return nil, nil
@@ -108,7 +114,10 @@ func (r *rpcDetailsService) GetTokenDetails(
 	// strip 0x
 	hexStr := strings.TrimPrefix(res, "0x")
 	if len(hexStr) == 0 {
-		slog.DebugContext(ctx, "Response is empty after stripping 0x; returning nil for the token details")
+		slog.DebugContext(
+			ctx,
+			"Response is empty after stripping 0x; returning nil for the token details",
+		)
 
 		return nil, nil
 	}
@@ -124,7 +133,10 @@ func (r *rpcDetailsService) GetTokenDetails(
 
 	bi := new(big.Int).SetBytes(decoded)
 	if bi.BitLen() == 0 {
-		slog.DebugContext(ctx, "Response is zero after decoding; returning nil for the token details")
+		slog.DebugContext(
+			ctx,
+			"Response is zero after decoding; returning nil for the token details",
+		)
 
 		return nil, nil
 	}

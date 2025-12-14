@@ -23,9 +23,13 @@ func main() {
 
 	httpClient := http.DefaultClient
 
-	slog.InfoContext(ctx, fmt.Sprintf("Retrieving token details for contract '%s'", usdcAddressBase))
+	slog.InfoContext(
+		ctx,
+		fmt.Sprintf("Retrieving token details for contract '%s'", usdcAddressBase),
+	)
 
 	tokenDetailsService := token.NewRPCDetailsService(httpClient, rpcNodeURLBase)
+
 	tokenDetails, err := tokenDetailsService.GetTokenDetails(ctx, usdcAddressBase)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to retrieve token details", "error", err)
@@ -42,14 +46,26 @@ func main() {
 
 	slog.InfoContext(ctx, fmt.Sprintf("Parsed %d transfers", len(transfers)))
 
-	slog.InfoContext(ctx, fmt.Sprintf("Synchronizing transactions for contract '%s' for wallet '%s'", usdcAddressBase, walletAddress))
+	slog.InfoContext(
+		ctx,
+		fmt.Sprintf(
+			"Synchronizing transactions for contract '%s' for wallet '%s'",
+			usdcAddressBase,
+			walletAddress,
+		),
+	)
 }
 
-func getTransfers(ctx context.Context, tokenDetails *token.Details) ([]transaction.Transfer, error) {
+func getTransfers(
+	ctx context.Context,
+	tokenDetails *token.Details,
+) ([]transaction.Transfer, error) {
 	var csvFile string
 	for _, arg := range os.Args[1:] {
-		if strings.HasPrefix(arg, "--csv-file=") {
-			csvFile = strings.TrimPrefix(arg, "--csv-file=")
+		parsedFile, hasPrefix := strings.CutPrefix(arg, "--csv-file=")
+		if hasPrefix {
+			csvFile = parsedFile
+
 			break
 		}
 	}
@@ -58,11 +74,16 @@ func getTransfers(ctx context.Context, tokenDetails *token.Details) ([]transacti
 		return nil, fmt.Errorf("--csv-file argument is required")
 	}
 
-	file, err := os.Open(csvFile)
+	file, err := os.Open(csvFile) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to open CSV file: %w", err)
 	}
 	defer file.Close()
 
-	return transaction.TransfersFromEtherscanCSV(ctx, tokenDetails, file)
+	transfers, err := transaction.TransfersFromEtherscanCSV(ctx, tokenDetails, file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse transfers from CSV: %w", err)
+	}
+
+	return transfers, nil
 }

@@ -1,7 +1,6 @@
 package token_test
 
 import (
-	"net/http"
 	"testing"
 
 	"github.com/jarcoal/httpmock"
@@ -9,18 +8,17 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var client *http.Client
-
 func TestRPCDetailsService(t *testing.T) {
+	t.Parallel()
+
+	BeforeSuite(func() {
+		httpmock.Activate()
+	})
+
+	AfterSuite(func() {
+		httpmock.DeactivateAndReset()
+	})
+
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "RPCDetailsService Suite")
 }
-
-var _ = BeforeSuite(func() {
-	client = &http.Client{}
-	httpmock.ActivateNonDefault(client)
-})
-
-var _ = AfterSuite(func() {
-	httpmock.DeactivateAndReset()
-})

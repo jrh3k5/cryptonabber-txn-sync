@@ -5,7 +5,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/csv"
-	"fmt"
 	"math/big"
 	"time"
 
@@ -74,6 +73,7 @@ var _ = Describe("TransfersFromEtherscanCSV", func() {
 		for i, col := range allColumns {
 			if col == missingColumn {
 				toRemoveIndex = i
+
 				break
 			}
 		}
@@ -104,7 +104,7 @@ var _ = Describe("TransfersFromEtherscanCSV", func() {
 		)
 		Expect(
 			err,
-		).To(MatchError(ContainSubstring(fmt.Sprintf("CSV is missing required column: %s", missingColumn))), "parsing CSV with missing column '%s' should fail", missingColumn)
+		).To(MatchError(ContainSubstring("CSV is missing required column: "+missingColumn)), "parsing CSV with missing column '%s' should fail", missingColumn)
 	},
 		Entry("Transaction Hash", "Transaction Hash"),
 		Entry("From", "From"),
