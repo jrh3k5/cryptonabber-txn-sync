@@ -66,6 +66,18 @@ func (r *RPCDetailsService) GetTokenDetails(
 		Params:  []any{callObj, "latest"},
 	}
 
+	// perform the RPC call and decode the response
+	rpcResp, err := r.doRPC(ctx, reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// extract decimals from the result (may return nil, nil when no data)
+	return r.parseDecimalsFromResult(ctx, rpcResp.Result)
+}
+
+// doRPC sends a JSON-RPC request and decodes the response.
+func (r *RPCDetailsService) doRPC(ctx context.Context, reqBody rpcRequest) (*rpcResponse, error) {
 	b, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal rpc request: %w", err)
@@ -97,7 +109,16 @@ func (r *RPCDetailsService) GetTokenDetails(
 		return nil, fmt.Errorf("rpc error: %d %s", rpcResp.Error.Code, rpcResp.Error.Message)
 	}
 
-	res := rpcResp.Result
+	return &rpcResp, nil
+}
+
+// parseDecimalsFromResult interprets the RPC result string and converts it
+// into token decimals. It returns (nil, nil) when the response indicates
+// no data.
+func (r *RPCDetailsService) parseDecimalsFromResult(
+	ctx context.Context,
+	res string,
+) (*Details, error) {
 	if res == "" || res == "0x" {
 		slog.DebugContext(
 			ctx,
@@ -107,7 +128,6 @@ func (r *RPCDetailsService) GetTokenDetails(
 			),
 		)
 
-		// no data found
 		return nil, nil
 	}
 

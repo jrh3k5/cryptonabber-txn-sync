@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/csv"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
@@ -104,7 +105,7 @@ var _ = Describe("TransfersFromEtherscanCSV", func() {
 		)
 		Expect(
 			err,
-		).To(MatchError(ContainSubstring("CSV is missing required column: "+missingColumn)), "parsing CSV with missing column '%s' should fail", missingColumn)
+		).To(MatchError(ContainSubstring("CSV is missing required column: "+strings.ToLower(missingColumn))), "parsing CSV with missing column '%s' should fail", missingColumn)
 	},
 		Entry("Transaction Hash", "Transaction Hash"),
 		Entry("From", "From"),
