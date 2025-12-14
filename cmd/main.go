@@ -13,6 +13,7 @@ import (
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
+	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/transfer"
 )
 
 const (
@@ -68,7 +69,7 @@ func main() {
 		return
 	}
 
-	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken); err != nil {
+	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, transfers); err != nil {
 		slog.ErrorContext(ctx, "Synchronization failed", "error", err)
 
 		return
@@ -78,8 +79,9 @@ func main() {
 func runSync(
 	ctx context.Context,
 	httpClient *http.Client,
-	_ *token.Details,
+	tokenDetails *token.Details,
 	ynabAccessToken string,
+	transfers []*transaction.Transfer,
 ) error {
 	allBudgets, err := client.GetBudgets(ctx, httpClient, ynabAccessToken)
 	if err != nil {
@@ -126,11 +128,50 @@ func runSync(
 	)
 
 	for _, unclearedTransaction := range unclearedTransactions {
-		slog.InfoContext(ctx, fmt.Sprintf("Uncleared transaction: ID=%s, Date=%s, Amount=%d",
-			unclearedTransaction.ID,
-			unclearedTransaction.Date,
-			unclearedTransaction.Amount,
-		))
+		matchingTransfer := transfer.MatchTransfer(
+			unclearedTransaction,
+			walletAddress,
+			tokenDetails,
+			transfers,
+		)
+		if err != nil {
+			slog.ErrorContext(
+				ctx,
+				fmt.Sprintf(
+					"Failed to find matching transfer for transaction ID '%s'",
+					unclearedTransaction.ID,
+				),
+				"error",
+				err,
+			)
+
+			continue
+		}
+
+		if matchingTransfer == nil {
+			slog.InfoContext(
+				ctx,
+				fmt.Sprintf(
+					"No matching transfer found for transaction ID '%s' on date %s with amount %d",
+					unclearedTransaction.ID,
+					unclearedTransaction.Date,
+					unclearedTransaction.Amount,
+				),
+			)
+
+			continue
+		}
+
+		slog.InfoContext(
+			ctx,
+			fmt.Sprintf(
+				"Found matching transfer for transaction ID '%s' on date %s with amount %d: %s",
+				unclearedTransaction.ID,
+				unclearedTransaction.Date,
+				unclearedTransaction.Amount,
+				matchingTransfer.TransactionHash,
+			),
+		)
 	}
 
 	return nil
@@ -188,7 +229,7 @@ func getAccessToken() (string, error) {
 func getTransfers(
 	ctx context.Context,
 	tokenDetails *token.Details,
-) ([]transaction.Transfer, error) {
+) ([]*transaction.Transfer, error) {
 	var csvFile string
 	for _, arg := range os.Args[1:] {
 		parsedFile, hasPrefix := strings.CutPrefix(arg, "--csv-file=")

@@ -27,7 +27,7 @@ func TransfersFromEtherscanCSV(
 	ctx context.Context,
 	tokenDetails *token.Details,
 	csvReader io.Reader,
-) ([]Transfer, error) {
+) ([]*Transfer, error) {
 	// wrap the reader to strip a leading UTF-8 BOM (U+FEFF) if present
 	r := csv.NewReader(ctsio.StripUTF8BOM(csvReader))
 	r.TrimLeadingSpace = true
@@ -43,8 +43,7 @@ func TransfersFromEtherscanCSV(
 		return nil, err
 	}
 
-	var transfers []Transfer
-
+	var transfers []*Transfer
 	for {
 		record, err := r.Read()
 		if err != nil {
@@ -229,11 +228,11 @@ func parseRecord(
 	record []string,
 	txIdx, fromIdx, toIdx, amountIdx, timeIdx int,
 	tokenDetails *token.Details,
-) (Transfer, error) {
+) (*Transfer, error) {
 	if txIdx >= len(record) || fromIdx >= len(record) || toIdx >= len(record) ||
 		amountIdx >= len(record) ||
 		timeIdx >= len(record) {
-		return Transfer{}, fmt.Errorf("malformed csv record: %v", record)
+		return nil, fmt.Errorf("malformed csv record: %v", record)
 	}
 
 	txHash := strings.TrimSpace(record[txIdx])
@@ -244,15 +243,15 @@ func parseRecord(
 
 	totalAmount, err := parseAmount(amountStr, tokenDetails.Decimals, txHash)
 	if err != nil {
-		return Transfer{}, err
+		return nil, err
 	}
 
 	executionTime, err := parseExecutionTime(timeStr, txHash)
 	if err != nil {
-		return Transfer{}, err
+		return nil, err
 	}
 
-	return Transfer{
+	return &Transfer{
 		FromAddress:     from,
 		ToAddress:       to,
 		Amount:          totalAmount,
