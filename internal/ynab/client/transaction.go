@@ -105,7 +105,7 @@ func parseTransactionsFromBody(body io.Reader) ([]*Transaction, error) {
 			Amount:      t.Amount,
 			Date:        dt,
 			Description: t.Memo,
-			Cleared:     strings.EqualFold(t.Cleared, "cleared"),
+			Cleared:     !strings.EqualFold(t.Cleared, transactionClearedStatusUncleared),
 		})
 	}
 
