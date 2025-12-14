@@ -29,9 +29,12 @@ func MatchTransfer(
 	}
 
 	// scale = 10^decimals
-	scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil)
+	//nolint:mnd
+	scale := new(
+		big.Int,
+	).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil)
 	tmp := new(big.Int).Mul(big.NewInt(absAmt), scale)
-	expected := new(big.Int).Div(tmp, big.NewInt(1000))
+	expected := new(big.Int).Div(tmp, big.NewInt(1000)) //nolint:mnd
 
 	for _, tr := range transfers {
 		if !sameDate(tr.ExecutionTime, ynabTransaction.Date) {

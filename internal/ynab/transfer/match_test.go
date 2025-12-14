@@ -16,7 +16,11 @@ import (
 var _ = Describe("MatchTransfer", func() {
 	It("matches outbound transfer by date, address, and amount", func() {
 		date := time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)
-		ynabTxn := &clientpkg.Transaction{Amount: -1000, Date: date}
+		ynabTxn := &clientpkg.Transaction{
+			ID:     "test-txn",
+			Amount: -1000,
+			Date:   date,
+		}
 
 		tr := &ttx.Transfer{
 			FromAddress:     strings.ToLower("0xAbc"),
@@ -34,7 +38,11 @@ var _ = Describe("MatchTransfer", func() {
 
 	It("matches inbound transfer by date, address, and amount", func() {
 		date := time.Date(2025, 12, 2, 0, 0, 0, 0, time.UTC)
-		ynabTxn := &clientpkg.Transaction{Amount: 2000, Date: date}
+		ynabTxn := &clientpkg.Transaction{
+			ID:     "test-txn",
+			Amount: 2000,
+			Date:   date,
+		}
 
 		tr := &ttx.Transfer{
 			FromAddress:     "0xother",
@@ -52,7 +60,11 @@ var _ = Describe("MatchTransfer", func() {
 
 	It("returns nil when no matching amount", func() {
 		date := time.Date(2025, 12, 3, 0, 0, 0, 0, time.UTC)
-		ynabTxn := &clientpkg.Transaction{Amount: 1000, Date: date}
+		ynabTxn := &clientpkg.Transaction{
+			ID:     "test-txn",
+			Amount: 1000,
+			Date:   date,
+		}
 
 		tr := &ttx.Transfer{
 			FromAddress:     "0xother",

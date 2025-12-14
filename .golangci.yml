@@ -4,6 +4,7 @@ linters:
   disable:
     - depguard
     - err113
+    - exhaustruct
     - godot
     - lll
     - nilnil
