@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -71,14 +72,14 @@ func getTransfers(
 	}
 
 	if csvFile == "" {
-		return nil, fmt.Errorf("--csv-file argument is required")
+		return nil, errors.New("--csv-file argument is required")
 	}
 
 	file, err := os.Open(csvFile) //nolint:gosec
 	if err != nil {
 		return nil, fmt.Errorf("failed to open CSV file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	transfers, err := transaction.TransfersFromEtherscanCSV(ctx, tokenDetails, file)
 	if err != nil {

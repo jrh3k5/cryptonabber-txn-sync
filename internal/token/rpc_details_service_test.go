@@ -3,7 +3,7 @@ package token_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
 	"net/http"
 
@@ -77,7 +77,7 @@ var _ = Describe("rpcDetailsService", func() {
 			Expect(payload["method"]).To(Equal("eth_call"))
 			params, ok := payload["params"].([]any)
 			Expect(ok).To(BeTrue())
-			Expect(len(params)).To(BeNumerically(">=", 1))
+			Expect(params).ToNot(BeEmpty())
 			callObj, ok := params[0].(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(callObj["to"]).To(Equal(contract))
@@ -122,7 +122,7 @@ var _ = Describe("rpcDetailsService", func() {
 			httpmock.RegisterResponder(
 				"POST",
 				rpcURL,
-				httpmock.NewErrorResponder(fmt.Errorf("network error")),
+				httpmock.NewErrorResponder(errors.New("network error")),
 			)
 
 			_, err := detailsService.GetTokenDetails(ctx, "0xdeadbeef")

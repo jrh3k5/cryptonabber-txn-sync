@@ -3,6 +3,7 @@ package transaction
 import (
 	"context"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -88,10 +89,11 @@ func TransfersFromEtherscanCSV(
 
 	for {
 		record, err := r.Read()
-		if err == io.EOF {
-			break
-		}
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
 			return nil, fmt.Errorf("read CSV record: %w", err)
 		}
 

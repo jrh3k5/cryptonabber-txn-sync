@@ -38,6 +38,6 @@ var _ = Describe("StripUTF8BOM", func() {
 		r := iopkg.StripUTF8BOM(bytes.NewReader(nil))
 		b, err := io.ReadAll(r)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(len(b)).To(Equal(0))
+		Expect(b).To(BeEmpty())
 	})
 })
