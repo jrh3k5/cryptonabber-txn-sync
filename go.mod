@@ -3,7 +3,6 @@ module github.com/jrh3k5/cryptonabber-txn-sync
 go 1.25.4
 
 require (
-	github.com/davidsteinsland/ynab-go v0.0.0-20180509062024-abfe6d465a99
 	github.com/jarcoal/httpmock v1.4.1
 	github.com/onsi/ginkgo/v2 v2.27.2
 	github.com/onsi/gomega v1.38.2

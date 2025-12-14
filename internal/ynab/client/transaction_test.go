@@ -34,7 +34,14 @@ var _ = Describe("GetTransactions", func() {
 			},
 		)
 
-		txns, err := clientpkg.GetTransactions(ctx, http.DefaultClient, "tokengoeshere", "budget1", "acct1", since)
+		txns, err := clientpkg.GetTransactions(
+			ctx,
+			http.DefaultClient,
+			"tokengoeshere",
+			"budget1",
+			"acct1",
+			since,
+		)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(txns).To(HaveLen(1))
 

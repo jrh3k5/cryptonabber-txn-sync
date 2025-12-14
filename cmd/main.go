@@ -6,22 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/davidsteinsland/ynab-go/ynab"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
-	ctsynab "github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab"
+	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
 )
 
 const (
 	rpcNodeURLBase  = "https://mainnet.base.org"
 	usdcAddressBase = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 	walletAddress   = "0x9134fc7112b478e97eE6F0E6A7bf81EcAfef19ED"
-
-	ynabURL = "https://api.ynab.com/v1/"
 
 	// YNAB mock values
 	acountName = "Base USDC Hot Storage"
@@ -71,16 +68,7 @@ func main() {
 		return
 	}
 
-	parsedURL, err := url.Parse(ynabURL)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to parse YNAB URL", "error", err)
-
-		return
-	}
-
-	ynabClient := ynab.NewClient(parsedURL, httpClient, ynabAccessToken)
-
-	allBudgets, err := ynabClient.BudgetService.List()
+	allBudgets, err := client.GetBudgets(ctx, httpClient, ynabAccessToken)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to retrieve YNAB budgets", "error", err)
 
@@ -95,36 +83,58 @@ func main() {
 
 	budget := allBudgets[0]
 
-	unclearedTxns, err := ctsynab.GetUnclearedTransactions(
-		ynabClient,
-		budget.Id,
-		acountName,
-	)
+	accounts, err := client.GetAccounts(ctx, httpClient, ynabAccessToken, budget.ID)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to retrieve uncleared transactions", "error", err)
+		slog.ErrorContext(ctx, "Failed to retrieve YNAB accounts", "error", err)
 
 		return
 	}
 
-	if len(unclearedTxns) == 0 {
-		slog.InfoContext(ctx, "No uncleared transactions found; nothing to synchronize")
+	var accountFound bool
+	for _, acct := range accounts {
+		if acct.Name == acountName {
+			accountFound = true
+
+			break
+		}
+	}
+	if !accountFound {
+		slog.ErrorContext(
+			ctx,
+			fmt.Sprintf("Account '%s' not found in budget '%s'", acountName, budget.Name),
+		)
 
 		return
+	}
+
+	transactions, err := client.GetTransactions(
+		ctx,
+		httpClient,
+		ynabAccessToken,
+		budget.ID,
+		accounts[0].ID,
+		time.Now().Add(-7*24*time.Hour),
+	)
+
+	var unclearedTransactions []*client.Transaction
+	for _, txn := range transactions {
+		if !txn.Cleared {
+			unclearedTransactions = append(unclearedTransactions, txn)
+		}
 	}
 
 	slog.InfoContext(
 		ctx,
-		fmt.Sprintf("Retrieved %d uncleared transactions", len(unclearedTxns)),
+		fmt.Sprintf("Retrieved %d uncleared transactions", len(unclearedTransactions)),
 	)
 
-	for _, unclearedTransaction := range unclearedTxns {
+	for _, unclearedTransaction := range unclearedTransactions {
 		slog.InfoContext(
 			ctx,
-			fmt.Sprintf("Uncleared transaction: ID=%s, Date=%s, Amount=%d, Memo=%q",
-				unclearedTransaction.Id,
+			fmt.Sprintf("Uncleared transaction: ID=%s, Date=%s, Amount=%d",
+				unclearedTransaction.ID,
 				unclearedTransaction.Date,
 				unclearedTransaction.Amount,
-				unclearedTransaction.Memo,
 			),
 		)
 	}
