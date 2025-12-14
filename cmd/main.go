@@ -68,43 +68,37 @@ func main() {
 		return
 	}
 
+	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken); err != nil {
+		slog.ErrorContext(ctx, "Synchronization failed", "error", err)
+
+		return
+	}
+}
+
+func runSync(
+	ctx context.Context,
+	httpClient *http.Client,
+	_ *token.Details,
+	ynabAccessToken string,
+) error {
 	allBudgets, err := client.GetBudgets(ctx, httpClient, ynabAccessToken)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to retrieve YNAB budgets", "error", err)
-
-		return
-	} else if len(allBudgets) == 0 {
-		slog.ErrorContext(ctx, "No YNAB budgets found; at least one budget is required")
-
-		return
-	} else if len(allBudgets) > 1 {
-		slog.InfoContext(ctx, fmt.Sprintf("%d budgets returned; using the first ('%s')", len(allBudgets), allBudgets[0].Name))
+		return fmt.Errorf("failed to retrieve YNAB budgets: %w", err)
 	}
 
-	budget := allBudgets[0]
+	budget, err := chooseBudget(ctx, allBudgets)
+	if err != nil {
+		return err
+	}
 
 	accounts, err := client.GetAccounts(ctx, httpClient, ynabAccessToken, budget.ID)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to retrieve YNAB accounts", "error", err)
-
-		return
+		return fmt.Errorf("failed to retrieve YNAB accounts: %w", err)
 	}
 
-	var accountFound bool
-	for _, acct := range accounts {
-		if acct.Name == acountName {
-			accountFound = true
-
-			break
-		}
-	}
-	if !accountFound {
-		slog.ErrorContext(
-			ctx,
-			fmt.Sprintf("Account '%s' not found in budget '%s'", acountName, budget.Name),
-		)
-
-		return
+	chosenAccountID, err := findAccountID(accounts, acountName)
+	if err != nil {
+		return fmt.Errorf("account '%s' not found in budget '%s'", acountName, budget.Name)
 	}
 
 	transactions, err := client.GetTransactions(
@@ -112,9 +106,12 @@ func main() {
 		httpClient,
 		ynabAccessToken,
 		budget.ID,
-		accounts[0].ID,
+		chosenAccountID,
 		time.Now().Add(-7*24*time.Hour),
 	)
+	if err != nil {
+		return fmt.Errorf("failed to get transactions: %w", err)
+	}
 
 	var unclearedTransactions []*client.Transaction
 	for _, txn := range transactions {
@@ -129,15 +126,45 @@ func main() {
 	)
 
 	for _, unclearedTransaction := range unclearedTransactions {
+		slog.InfoContext(ctx, fmt.Sprintf("Uncleared transaction: ID=%s, Date=%s, Amount=%d",
+			unclearedTransaction.ID,
+			unclearedTransaction.Date,
+			unclearedTransaction.Amount,
+		))
+	}
+
+	return nil
+}
+
+func chooseBudget(ctx context.Context, budgets []*client.Budget) (*client.Budget, error) {
+	switch len(budgets) {
+	case 0:
+		return nil, errors.New("no YNAB budgets found; at least one budget is required")
+	case 1:
+		return budgets[0], nil
+	default:
+		// prefer the first budget and log the selection
 		slog.InfoContext(
 			ctx,
-			fmt.Sprintf("Uncleared transaction: ID=%s, Date=%s, Amount=%d",
-				unclearedTransaction.ID,
-				unclearedTransaction.Date,
-				unclearedTransaction.Amount,
+			fmt.Sprintf(
+				"%d budgets returned; using the first ('%s')",
+				len(budgets),
+				budgets[0].Name,
 			),
 		)
+
+		return budgets[0], nil
 	}
+}
+
+func findAccountID(accounts []*client.Account, name string) (string, error) {
+	for _, acct := range accounts {
+		if acct.Name == name {
+			return acct.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("account '%s' not found", name)
 }
 
 func getAccessToken() (string, error) {

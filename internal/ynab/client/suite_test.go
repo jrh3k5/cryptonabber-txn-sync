@@ -9,6 +9,7 @@ import (
 )
 
 func TestClient(t *testing.T) {
+	t.Parallel()
 	BeforeSuite(func() {
 		httpmock.Activate()
 	})

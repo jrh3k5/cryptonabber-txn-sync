@@ -37,7 +37,7 @@ func GetAccounts(
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request for fetching accounts: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ynab API returned status %d", resp.StatusCode)
@@ -56,7 +56,7 @@ func GetAccounts(
 		return nil, fmt.Errorf("failed to decode accounts response: %w", err)
 	}
 
-	var out []*Account
+	out := make([]*Account, 0, len(envelope.Data.Accounts))
 	for _, a := range envelope.Data.Accounts {
 		out = append(out, &Account{ID: a.ID, Name: a.Name})
 	}

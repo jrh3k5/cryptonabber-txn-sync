@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -65,13 +66,17 @@ func GetTransactions(
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request for fetching transactions: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ynab API returned status %d", resp.StatusCode)
 	}
 
 	// Expected response: { "data": { "transactions": [ ... ] } }
+	return parseTransactionsFromBody(resp.Body)
+}
+
+func parseTransactionsFromBody(body io.Reader) ([]*Transaction, error) {
 	var envelope struct {
 		Data struct {
 			Transactions []struct {
@@ -84,11 +89,11 @@ func GetTransactions(
 		} `json:"data"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+	if err := json.NewDecoder(body).Decode(&envelope); err != nil {
 		return nil, fmt.Errorf("failed to decode transactions response: %w", err)
 	}
 
-	var txns []*Transaction
+	txns := make([]*Transaction, 0, len(envelope.Data.Transactions))
 	for _, t := range envelope.Data.Transactions {
 		var dt time.Time
 		if t.Date != "" {

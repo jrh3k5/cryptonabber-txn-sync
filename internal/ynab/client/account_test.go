@@ -19,6 +19,7 @@ var _ = Describe("GetAccounts", func() {
 			"https://api.ynab.com/v1/budgets/budget1/accounts",
 			func(req *http.Request) (*http.Response, error) {
 				Expect(req.Header.Get("Authorization")).To(Equal("Bearer tokengoeshere"))
+
 				return httpmock.NewStringResponse(http.StatusOK, respBody), nil
 			},
 		)

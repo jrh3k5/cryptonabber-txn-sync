@@ -32,7 +32,7 @@ func GetBudgets(ctx context.Context, client ctshttp.Doer, accessToken string) ([
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request for fetching budgets: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ynab API returned status %d", resp.StatusCode)
@@ -51,7 +51,7 @@ func GetBudgets(ctx context.Context, client ctshttp.Doer, accessToken string) ([
 		return nil, fmt.Errorf("failed to decode budgets response: %w", err)
 	}
 
-	var out []*Budget
+	out := make([]*Budget, 0, len(envelope.Data.Budgets))
 	for _, b := range envelope.Data.Budgets {
 		out = append(out, &Budget{ID: b.ID, Name: b.Name})
 	}
