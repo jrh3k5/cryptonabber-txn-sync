@@ -321,8 +321,5 @@ func processUnclearedTransactions(
 				err,
 			)
 		}
-
-		// TODO: don't break out of the loop
-		return
 	}
 }
