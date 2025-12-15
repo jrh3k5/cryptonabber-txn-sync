@@ -105,7 +105,15 @@ func runSync(
 		fmt.Sprintf("Retrieved %d uncleared transactions", len(unclearedTransactions)),
 	)
 
-	processUnclearedTransactions(ctx, tokenDetails, transfers, unclearedTransactions)
+	processUnclearedTransactions(
+		ctx,
+		httpClient,
+		ynabAccessToken,
+		budget.ID,
+		tokenDetails,
+		transfers,
+		unclearedTransactions,
+	)
 
 	return nil
 }
@@ -255,6 +263,9 @@ func retrieveUnclearedTransactions(
 
 func processUnclearedTransactions(
 	ctx context.Context,
+	httpClient *http.Client,
+	accessToken string,
+	budgetID string,
 	tokenDetails *token.Details,
 	transfers []*transaction.Transfer,
 	unclearedTransactions []*client.Transaction,
@@ -291,5 +302,27 @@ func processUnclearedTransactions(
 				matchingTransfer.TransactionHash,
 			),
 		)
+
+		if err := client.MarkTransactionClearedAndAppendMemo(
+			ctx,
+			httpClient,
+			accessToken,
+			budgetID,
+			unclearedTransaction.ID,
+			matchingTransfer.TransactionHash,
+		); err != nil {
+			slog.ErrorContext(
+				ctx,
+				fmt.Sprintf(
+					"Failed to mark transaction ID '%s' as cleared",
+					unclearedTransaction.ID,
+				),
+				"error",
+				err,
+			)
+		}
+
+		// TODO: don't break out of the loop
+		return
 	}
 }

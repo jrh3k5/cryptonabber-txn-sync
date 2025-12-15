@@ -197,14 +197,14 @@ func computeMemo(existing, txHash string) string {
 	}
 
 	if existing == "" {
-		return txHash
+		return "Transaction hash: " + txHash
 	}
 
 	if strings.Contains(existing, txHash) {
 		return existing
 	}
 
-	return existing + " " + txHash
+	return existing + "; transaction hash: " + txHash
 }
 
 func updateTransaction(
