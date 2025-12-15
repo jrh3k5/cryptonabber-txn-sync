@@ -83,27 +83,12 @@ func runSync(
 	ynabAccessToken string,
 	transfers []*transaction.Transfer,
 ) error {
-	allBudgets, err := client.GetBudgets(ctx, httpClient, ynabAccessToken)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve YNAB budgets: %w", err)
-	}
-
-	budget, err := chooseBudget(ctx, allBudgets)
+	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken)
 	if err != nil {
 		return err
 	}
 
-	accounts, err := client.GetAccounts(ctx, httpClient, ynabAccessToken, budget.ID)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve YNAB accounts: %w", err)
-	}
-
-	chosenAccountID, err := findAccountID(accounts, acountName)
-	if err != nil {
-		return fmt.Errorf("account '%s' not found in budget '%s'", acountName, budget.Name)
-	}
-
-	transactions, err := client.GetTransactions(
+	unclearedTransactions, err := retrieveUnclearedTransactions(
 		ctx,
 		httpClient,
 		ynabAccessToken,
@@ -112,14 +97,7 @@ func runSync(
 		time.Now().Add(-7*24*time.Hour),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to get transactions: %w", err)
-	}
-
-	var unclearedTransactions []*client.Transaction
-	for _, txn := range transactions {
-		if !txn.Cleared {
-			unclearedTransactions = append(unclearedTransactions, txn)
-		}
+		return err
 	}
 
 	slog.InfoContext(
@@ -127,54 +105,20 @@ func runSync(
 		fmt.Sprintf("Retrieved %d uncleared transactions", len(unclearedTransactions)),
 	)
 
-	for _, unclearedTransaction := range unclearedTransactions {
-		matchingTransfer := transfer.MatchTransfer(
-			unclearedTransaction,
-			walletAddress,
-			tokenDetails,
-			transfers,
-		)
-		if err != nil {
-			slog.ErrorContext(
-				ctx,
-				fmt.Sprintf(
-					"Failed to find matching transfer for transaction ID '%s'",
-					unclearedTransaction.ID,
-				),
-				"error",
-				err,
-			)
-
-			continue
-		}
-
-		if matchingTransfer == nil {
-			slog.InfoContext(
-				ctx,
-				fmt.Sprintf(
-					"No matching transfer found for transaction ID '%s' on date %s with amount %d",
-					unclearedTransaction.ID,
-					unclearedTransaction.Date,
-					unclearedTransaction.Amount,
-				),
-			)
-
-			continue
-		}
-
-		slog.InfoContext(
-			ctx,
-			fmt.Sprintf(
-				"Found matching transfer for transaction ID '%s' on date %s with amount %d: %s",
-				unclearedTransaction.ID,
-				unclearedTransaction.Date,
-				unclearedTransaction.Amount,
-				matchingTransfer.TransactionHash,
-			),
-		)
-	}
+	processUnclearedTransactions(ctx, tokenDetails, transfers, unclearedTransactions)
 
 	return nil
+}
+
+func filterUncleared(transactions []*client.Transaction) []*client.Transaction {
+	var out []*client.Transaction
+	for _, txn := range transactions {
+		if !txn.Cleared {
+			out = append(out, txn)
+		}
+	}
+
+	return out
 }
 
 func chooseBudget(ctx context.Context, budgets []*client.Budget) (*client.Budget, error) {
@@ -256,4 +200,96 @@ func getTransfers(
 	}
 
 	return transfers, nil
+}
+
+func selectAccount(
+	ctx context.Context,
+	httpClient *http.Client,
+	ynabAccessToken string,
+) (*client.Budget, string, error) {
+	allBudgets, err := client.GetBudgets(ctx, httpClient, ynabAccessToken)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to retrieve YNAB budgets: %w", err)
+	}
+
+	budget, err := chooseBudget(ctx, allBudgets)
+	if err != nil {
+		return nil, "", err
+	}
+
+	accounts, err := client.GetAccounts(ctx, httpClient, ynabAccessToken, budget.ID)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to retrieve YNAB accounts: %w", err)
+	}
+
+	chosenAccountID, err := findAccountID(accounts, acountName)
+	if err != nil {
+		return nil, "", fmt.Errorf("account '%s' not found in budget '%s'", acountName, budget.Name)
+	}
+
+	return budget, chosenAccountID, nil
+}
+
+func retrieveUnclearedTransactions(
+	ctx context.Context,
+	httpClient *http.Client,
+	ynabAccessToken string,
+	budgetID string,
+	accountID string,
+	since time.Time,
+) ([]*client.Transaction, error) {
+	transactions, err := client.GetTransactions(
+		ctx,
+		httpClient,
+		ynabAccessToken,
+		budgetID,
+		accountID,
+		since,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transactions: %w", err)
+	}
+
+	return filterUncleared(transactions), nil
+}
+
+func processUnclearedTransactions(
+	ctx context.Context,
+	tokenDetails *token.Details,
+	transfers []*transaction.Transfer,
+	unclearedTransactions []*client.Transaction,
+) {
+	for _, unclearedTransaction := range unclearedTransactions {
+		matchingTransfer := transfer.MatchTransfer(
+			unclearedTransaction,
+			walletAddress,
+			tokenDetails,
+			transfers,
+		)
+
+		if matchingTransfer == nil {
+			slog.InfoContext(
+				ctx,
+				fmt.Sprintf(
+					"No matching transfer found for transaction ID '%s' on date %s with amount %d",
+					unclearedTransaction.ID,
+					unclearedTransaction.Date,
+					unclearedTransaction.Amount,
+				),
+			)
+
+			continue
+		}
+
+		slog.InfoContext(
+			ctx,
+			fmt.Sprintf(
+				"Found matching transfer for transaction ID '%s' on date %s with amount %d: %s",
+				unclearedTransaction.ID,
+				unclearedTransaction.Date,
+				unclearedTransaction.Amount,
+				matchingTransfer.TransactionHash,
+			),
+		)
+	}
 }
