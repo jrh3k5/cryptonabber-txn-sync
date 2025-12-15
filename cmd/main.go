@@ -26,41 +26,9 @@ const (
 
 func main() {
 	ctx := context.Background()
-
-	walletAddress, err := getAddress()
+	walletAddress, tokenAddress, httpClient, tokenDetails, transfers, err := initRun(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to get wallet address", "error", err)
-
-		return
-	}
-
-	tokenAddress := getTokenAddress()
-	slog.InfoContext(
-		ctx,
-		fmt.Sprintf("Using token contract address: %s", tokenAddress),
-	)
-
-	rpcURL := getRPCURL()
-
-	httpClient := http.DefaultClient
-
-	slog.InfoContext(
-		ctx,
-		fmt.Sprintf("Retrieving token details for contract '%s'", tokenAddress),
-	)
-
-	tokenDetailsService := token.NewRPCDetailsService(httpClient, rpcURL)
-
-	tokenDetails, err := tokenDetailsService.GetTokenDetails(ctx, tokenAddress)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to retrieve token details", "error", err)
-
-		return
-	}
-
-	transfers, err := getTransfers(ctx, tokenDetails)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to retrieve transfers", "error", err)
+		slog.ErrorContext(ctx, "Initialization failed", "error", err)
 
 		return
 	}
@@ -88,6 +56,45 @@ func main() {
 
 		return
 	}
+}
+
+func initRun(
+	ctx context.Context,
+) (
+	string,
+	string,
+	*http.Client,
+	*token.Details,
+	[]*transaction.Transfer,
+	error,
+) {
+	walletAddress, err := getAddress()
+	if err != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("failed to get wallet address: %w", err)
+	}
+
+	tokenAddress := getTokenAddress()
+	slog.InfoContext(ctx, "Using token contract address: "+tokenAddress)
+
+	rpcURL := getRPCURL()
+
+	httpClient := http.DefaultClient
+
+	slog.InfoContext(ctx, fmt.Sprintf("Retrieving token details for contract '%s'", tokenAddress))
+
+	tokenDetailsService := token.NewRPCDetailsService(httpClient, rpcURL)
+
+	tokenDetails, err := tokenDetailsService.GetTokenDetails(ctx, tokenAddress)
+	if err != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("failed to retrieve token details: %w", err)
+	}
+
+	transfers, err := getTransfers(ctx, tokenDetails)
+	if err != nil {
+		return "", "", nil, nil, nil, fmt.Errorf("failed to get transfers: %w", err)
+	}
+
+	return walletAddress, tokenAddress, httpClient, tokenDetails, transfers, nil
 }
 
 func runSync(
@@ -374,23 +381,25 @@ func processUnclearedTransactions(
 			),
 		)
 
-		if err := client.MarkTransactionClearedAndAppendMemo(
-			ctx,
-			httpClient,
-			accessToken,
-			budgetID,
-			unclearedTransaction.ID,
-			matchingTransfer.TransactionHash,
-		); err != nil {
+		if err := handleMatchedTransaction(ctx, httpClient, accessToken, budgetID, unclearedTransaction.ID, matchingTransfer.TransactionHash); err != nil {
 			slog.ErrorContext(
 				ctx,
-				fmt.Sprintf(
-					"Failed to mark transaction ID '%s' as cleared",
-					unclearedTransaction.ID,
-				),
+				fmt.Sprintf("Failed to mark transaction ID %s as cleared", unclearedTransaction.ID),
 				"error",
 				err,
 			)
 		}
 	}
+}
+
+func handleMatchedTransaction(
+	ctx context.Context,
+	httpClient *http.Client,
+	accessToken, budgetID, transactionID, txHash string,
+) error {
+	if err := client.MarkTransactionClearedAndAppendMemo(ctx, httpClient, accessToken, budgetID, transactionID, txHash); err != nil {
+		return fmt.Errorf("failed to update transaction %s: %w", transactionID, err)
+	}
+
+	return nil
 }

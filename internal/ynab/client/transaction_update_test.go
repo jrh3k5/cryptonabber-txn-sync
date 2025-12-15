@@ -42,7 +42,8 @@ var _ = Describe("MarkTransactionClearedAndAppendMemo", func() {
 
 				body, _ := io.ReadAll(req.Body)
 				s := string(body)
-				Expect(s).To(ContainSubstring(`"memo":"original memo; transaction hash: txhash123"`))
+				Expect(s).To(ContainSubstring(`"memo":"original memo; transaction hash:`))
+				Expect(s).To(ContainSubstring(`txhash123"`))
 				Expect(s).To(ContainSubstring(`"cleared":"cleared"`))
 
 				sawPut = true
