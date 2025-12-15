@@ -34,16 +34,24 @@ func main() {
 		return
 	}
 
+	tokenAddress := getTokenAddress()
+	slog.InfoContext(
+		ctx,
+		fmt.Sprintf("Using token contract address: %s", tokenAddress),
+	)
+
+	rpcURL := getRPCURL()
+
 	httpClient := http.DefaultClient
 
 	slog.InfoContext(
 		ctx,
-		fmt.Sprintf("Retrieving token details for contract '%s'", usdcAddressBase),
+		fmt.Sprintf("Retrieving token details for contract '%s'", tokenAddress),
 	)
 
-	tokenDetailsService := token.NewRPCDetailsService(httpClient, rpcNodeURLBase)
+	tokenDetailsService := token.NewRPCDetailsService(httpClient, rpcURL)
 
-	tokenDetails, err := tokenDetailsService.GetTokenDetails(ctx, usdcAddressBase)
+	tokenDetails, err := tokenDetailsService.GetTokenDetails(ctx, tokenAddress)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to retrieve token details", "error", err)
 
@@ -63,7 +71,7 @@ func main() {
 		ctx,
 		fmt.Sprintf(
 			"Synchronizing transactions for contract '%s' for wallet '%s'",
-			usdcAddressBase,
+			tokenAddress,
 			walletAddress,
 		),
 	)
@@ -202,6 +210,42 @@ func getAddress() (string, error) {
 	}
 
 	return address, nil
+}
+
+func getRPCURL() string {
+	var rpcURL string
+	for _, arg := range os.Args[1:] {
+		parsedURL, hasPrefix := strings.CutPrefix(arg, "--rpc-url=")
+		if hasPrefix {
+			rpcURL = parsedURL
+
+			break
+		}
+	}
+
+	if rpcURL == "" {
+		return rpcNodeURLBase
+	}
+
+	return rpcURL
+}
+
+func getTokenAddress() string {
+	var tokenAddress string
+	for _, arg := range os.Args[1:] {
+		parsedAddress, hasPrefix := strings.CutPrefix(arg, "--token-address=")
+		if hasPrefix {
+			tokenAddress = parsedAddress
+
+			break
+		}
+	}
+
+	if tokenAddress == "" {
+		return usdcAddressBase
+	}
+
+	return tokenAddress
 }
 
 func getTransfers(
