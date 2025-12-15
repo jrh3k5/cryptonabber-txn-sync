@@ -19,7 +19,6 @@ import (
 const (
 	rpcNodeURLBase  = "https://mainnet.base.org"
 	usdcAddressBase = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-	walletAddress   = "0x9134fc7112b478e97eE6F0E6A7bf81EcAfef19ED"
 
 	// YNAB mock values
 	acountName = "Base USDC Hot Storage"
@@ -27,6 +26,13 @@ const (
 
 func main() {
 	ctx := context.Background()
+
+	walletAddress, err := getAddress()
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get wallet address", "error", err)
+
+		return
+	}
 
 	httpClient := http.DefaultClient
 
@@ -69,7 +75,7 @@ func main() {
 		return
 	}
 
-	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, transfers); err != nil {
+	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers); err != nil {
 		slog.ErrorContext(ctx, "Synchronization failed", "error", err)
 
 		return
@@ -81,6 +87,7 @@ func runSync(
 	httpClient *http.Client,
 	tokenDetails *token.Details,
 	ynabAccessToken string,
+	walletAddress string,
 	transfers []*transaction.Transfer,
 ) error {
 	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken)
@@ -110,6 +117,7 @@ func runSync(
 		httpClient,
 		ynabAccessToken,
 		budget.ID,
+		walletAddress,
 		tokenDetails,
 		transfers,
 		unclearedTransactions,
@@ -176,6 +184,24 @@ func getAccessToken() (string, error) {
 	}
 
 	return accessToken, nil
+}
+
+func getAddress() (string, error) {
+	var address string
+	for _, arg := range os.Args[1:] {
+		parsedAddress, hasPrefix := strings.CutPrefix(arg, "--wallet-address=")
+		if hasPrefix {
+			address = parsedAddress
+
+			break
+		}
+	}
+
+	if address == "" {
+		return "", errors.New("--wallet-address argument is required")
+	}
+
+	return address, nil
 }
 
 func getTransfers(
@@ -266,6 +292,7 @@ func processUnclearedTransactions(
 	httpClient *http.Client,
 	accessToken string,
 	budgetID string,
+	walletAddress string,
 	tokenDetails *token.Details,
 	transfers []*transaction.Transfer,
 	unclearedTransactions []*client.Transaction,
