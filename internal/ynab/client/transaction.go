@@ -111,3 +111,101 @@ func parseTransactionsFromBody(body io.Reader) ([]*Transaction, error) {
 
 	return txns, nil
 }
+
+// MarkTransactionClearedAndAppendMemo fetches the transaction, marks it as cleared,
+// and appends the given transaction hash to the memo if not already present.
+func MarkTransactionClearedAndAppendMemo(
+	ctx context.Context,
+	client ctshttp.Doer,
+	accessToken string,
+	budgetID string,
+	transactionID string,
+	txHash string,
+) error {
+	requestPath, err := url.JoinPath(apiURL, "budgets", budgetID, "transactions", transactionID)
+	if err != nil {
+		return fmt.Errorf("failed to build request path for transaction: %w", err)
+	}
+
+	// GET the full transaction
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestPath, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request for fetching transaction: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute request for fetching transaction: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ynab API returned status %d", resp.StatusCode)
+	}
+
+	var envelope struct {
+		Data struct {
+			Transaction struct {
+				ID      string `json:"id"`
+				Memo    string `json:"memo"`
+				Cleared string `json:"cleared"`
+			} `json:"transaction"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return fmt.Errorf("failed to decode transaction response: %w", err)
+	}
+
+	txn := envelope.Data.Transaction
+	memo := strings.TrimSpace(txn.Memo)
+
+	if txHash != "" && !strings.Contains(memo, txHash) {
+		if memo == "" {
+			memo = txHash
+		} else {
+			memo = memo + " " + txHash
+		}
+	}
+
+	// prepare update payload
+	payload := struct {
+		Transaction struct {
+			Memo    string `json:"memo"`
+			Cleared string `json:"cleared"`
+		} `json:"transaction"`
+	}{}
+
+	payload.Transaction.Memo = memo
+	payload.Transaction.Cleared = "cleared"
+
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal transaction update: %w", err)
+	}
+
+	putReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPut,
+		requestPath,
+		strings.NewReader(string(bodyBytes)),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create request for updating transaction: %w", err)
+	}
+	putReq.Header.Set("Authorization", "Bearer "+accessToken)
+	putReq.Header.Set("Content-Type", "application/json")
+
+	putResp, err := client.Do(putReq)
+	if err != nil {
+		return fmt.Errorf("failed to execute request for updating transaction: %w", err)
+	}
+	defer func() { _ = putResp.Body.Close() }()
+
+	if putResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ynab API returned status %d on update", putResp.StatusCode)
+	}
+
+	return nil
+}
