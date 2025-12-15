@@ -122,54 +122,18 @@ func MarkTransactionClearedAndAppendMemo(
 	transactionID string,
 	txHash string,
 ) error {
-	requestPath, err := url.JoinPath(apiURL, "budgets", budgetID, "transactions", transactionID)
+	reqPath, err := url.JoinPath(apiURL, "budgets", budgetID, "transactions", transactionID)
 	if err != nil {
 		return fmt.Errorf("failed to build request path for transaction: %w", err)
 	}
 
-	// GET the full transaction
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestPath, nil)
+	txn, err := fetchTransaction(ctx, client, accessToken, reqPath)
 	if err != nil {
-		return fmt.Errorf("failed to create request for fetching transaction: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to execute request for fetching transaction: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("ynab API returned status %d", resp.StatusCode)
+		return err
 	}
 
-	var envelope struct {
-		Data struct {
-			Transaction struct {
-				ID      string `json:"id"`
-				Memo    string `json:"memo"`
-				Cleared string `json:"cleared"`
-			} `json:"transaction"`
-		} `json:"data"`
-	}
+	memo := computeMemo(strings.TrimSpace(txn.Memo), txHash)
 
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
-		return fmt.Errorf("failed to decode transaction response: %w", err)
-	}
-
-	txn := envelope.Data.Transaction
-	memo := strings.TrimSpace(txn.Memo)
-
-	if txHash != "" && !strings.Contains(memo, txHash) {
-		if memo == "" {
-			memo = txHash
-		} else {
-			memo = memo + " " + txHash
-		}
-	}
-
-	// prepare update payload
 	payload := struct {
 		Transaction struct {
 			Memo    string `json:"memo"`
@@ -180,6 +144,75 @@ func MarkTransactionClearedAndAppendMemo(
 	payload.Transaction.Memo = memo
 	payload.Transaction.Cleared = "cleared"
 
+	if err := updateTransaction(ctx, client, accessToken, reqPath, payload); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type fetchedTransaction struct {
+	ID      string `json:"id"`
+	Memo    string `json:"memo"`
+	Cleared string `json:"cleared"`
+}
+
+func fetchTransaction(
+	ctx context.Context,
+	client ctshttp.Doer,
+	accessToken, requestPath string,
+) (*fetchedTransaction, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for fetching transaction: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request for fetching transaction: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ynab API returned status %d", resp.StatusCode)
+	}
+
+	var envelope struct {
+		Data struct {
+			Transaction fetchedTransaction `json:"transaction"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("failed to decode transaction response: %w", err)
+	}
+
+	return &envelope.Data.Transaction, nil
+}
+
+func computeMemo(existing, txHash string) string {
+	if txHash == "" {
+		return existing
+	}
+
+	if existing == "" {
+		return txHash
+	}
+
+	if strings.Contains(existing, txHash) {
+		return existing
+	}
+
+	return existing + " " + txHash
+}
+
+func updateTransaction(
+	ctx context.Context,
+	client ctshttp.Doer,
+	accessToken, requestPath string,
+	payload any,
+) error {
 	bodyBytes, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal transaction update: %w", err)
