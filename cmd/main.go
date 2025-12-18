@@ -14,6 +14,7 @@ import (
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/transfer"
+	"github.com/manifoldco/promptui"
 )
 
 const (
@@ -159,17 +160,46 @@ func chooseBudget(ctx context.Context, budgets []*client.Budget) (*client.Budget
 	case 1:
 		return budgets[0], nil
 	default:
-		// prefer the first budget and log the selection
+		// If multiple budgets are available, prompt the user to select one.
+		var items []string
+		for _, b := range budgets {
+			items = append(items, fmt.Sprintf("%s (%s)", b.Name, b.ID))
+		}
+
+		prompt := promptui.Select{
+			Label: "Select a YNAB budget",
+			Items: items,
+		}
+
+		i, _, err := prompt.Run()
+		if err != nil {
+			// If the user canceled the prompt (Ctrl-C/Ctrl-D), exit with an error so the program stops.
+			if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
+				return nil, errors.New("budget selection canceled")
+			}
+
+			// Otherwise, if the prompt fails for a non-interactive reason, log a warning and fall back to the first budget.
+			slog.WarnContext(
+				ctx,
+				"Budget selection prompt failed; defaulting to first budget",
+				"error",
+				err,
+			)
+
+			return budgets[0], nil
+		}
+
+		selected := budgets[i]
 		slog.InfoContext(
 			ctx,
-			fmt.Sprintf(
-				"%d budgets returned; using the first ('%s')",
-				len(budgets),
-				budgets[0].Name,
-			),
+			"Selected budget",
+			"budgetName",
+			selected.Name,
+			"budgetID",
+			selected.ID,
 		)
 
-		return budgets[0], nil
+		return selected, nil
 	}
 }
 
