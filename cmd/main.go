@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,12 @@ const (
 
 func main() {
 	ctx := context.Background()
+
+	dryRun := isDryRun()
+	if dryRun {
+		slog.InfoContext(ctx, "Running in dry-run mode; no changes will be made to YNAB")
+	}
+
 	walletAddress, tokenAddress, httpClient, tokenDetails, transfers, err := initRun(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "Initialization failed", "error", err)
@@ -52,7 +59,7 @@ func main() {
 		return
 	}
 
-	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers); err != nil {
+	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers, dryRun); err != nil {
 		slog.ErrorContext(ctx, "Synchronization failed", "error", err)
 
 		return
@@ -105,6 +112,7 @@ func runSync(
 	ynabAccessToken string,
 	walletAddress string,
 	transfers []*transaction.Transfer,
+	dryRun bool,
 ) error {
 	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken)
 	if err != nil {
@@ -137,6 +145,7 @@ func runSync(
 		tokenDetails,
 		transfers,
 		unclearedTransactions,
+		dryRun,
 	)
 
 	return nil
@@ -317,6 +326,11 @@ func getTransfers(
 	return transfers, nil
 }
 
+func isDryRun() bool {
+	osArgs := os.Args[1:]
+	return slices.Contains(osArgs, "--dry-run")
+}
+
 func selectAccount(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -377,6 +391,7 @@ func processUnclearedTransactions(
 	tokenDetails *token.Details,
 	transfers []*transaction.Transfer,
 	unclearedTransactions []*client.Transaction,
+	dryRun bool,
 ) {
 	for _, unclearedTransaction := range unclearedTransactions {
 		matchingTransfer := transfer.MatchTransfer(
@@ -411,13 +426,15 @@ func processUnclearedTransactions(
 			),
 		)
 
-		if err := handleMatchedTransaction(ctx, httpClient, accessToken, budgetID, unclearedTransaction.ID, matchingTransfer.TransactionHash); err != nil {
-			slog.ErrorContext(
-				ctx,
-				fmt.Sprintf("Failed to mark transaction ID %s as cleared", unclearedTransaction.ID),
-				"error",
-				err,
-			)
+		if !dryRun {
+			if err := handleMatchedTransaction(ctx, httpClient, accessToken, budgetID, unclearedTransaction.ID, matchingTransfer.TransactionHash); err != nil {
+				slog.ErrorContext(
+					ctx,
+					fmt.Sprintf("Failed to mark transaction ID %s as cleared", unclearedTransaction.ID),
+					"error",
+					err,
+				)
+			}
 		}
 	}
 }
