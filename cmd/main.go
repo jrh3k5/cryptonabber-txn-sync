@@ -328,6 +328,7 @@ func getTransfers(
 
 func isDryRun() bool {
 	osArgs := os.Args[1:]
+
 	return slices.Contains(osArgs, "--dry-run")
 }
 
@@ -430,7 +431,10 @@ func processUnclearedTransactions(
 			if err := handleMatchedTransaction(ctx, httpClient, accessToken, budgetID, unclearedTransaction.ID, matchingTransfer.TransactionHash); err != nil {
 				slog.ErrorContext(
 					ctx,
-					fmt.Sprintf("Failed to mark transaction ID %s as cleared", unclearedTransaction.ID),
+					fmt.Sprintf(
+						"Failed to mark transaction ID %s as cleared",
+						unclearedTransaction.ID,
+					),
 					"error",
 					err,
 				)
