@@ -33,3 +33,6 @@ go.work.sum
 
 # Compiled artifacts
 dist
+
+# Testing CSV
+export.csv
