@@ -419,10 +419,9 @@ func processUnclearedTransactions(
 		slog.InfoContext(
 			ctx,
 			fmt.Sprintf(
-				"Found matching transfer for transaction ID '%s' on date %s with amount %d: %s",
-				unclearedTransaction.ID,
-				unclearedTransaction.Date,
-				unclearedTransaction.Amount,
+				"Matched transfer of %s to %s to transaction hash %s",
+				unclearedTransaction.GetFormattedAmount(),
+				unclearedTransaction.Payee,
 				matchingTransfer.TransactionHash,
 			),
 		)
