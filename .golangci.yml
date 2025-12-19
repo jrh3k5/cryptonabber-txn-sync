@@ -9,6 +9,7 @@ linters:
     - lll
     - nilnil
     - noinlineerr
+    - tagliatelle
     - varnamelen
     - wsl
     - wsl_v5

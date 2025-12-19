@@ -402,14 +402,19 @@ func processUnclearedTransactions(
 			transfers,
 		)
 
+		transactionDirection := "from"
+		if unclearedTransaction.IsOutbound() {
+			transactionDirection = "to"
+		}
+
 		if matchingTransfer == nil {
 			slog.InfoContext(
 				ctx,
 				fmt.Sprintf(
-					"No matching transfer found for transaction ID '%s' on date %s with amount %d",
-					unclearedTransaction.ID,
-					unclearedTransaction.Date,
-					unclearedTransaction.Amount,
+					"No matching transfer of %s %s %s found",
+					unclearedTransaction.GetFormattedAmount(),
+					transactionDirection,
+					unclearedTransaction.Payee,
 				),
 			)
 
@@ -419,8 +424,9 @@ func processUnclearedTransactions(
 		slog.InfoContext(
 			ctx,
 			fmt.Sprintf(
-				"Matched transfer of %s to %s to transaction hash %s",
+				"Matched transfer of %s %s %s to transaction hash %s",
 				unclearedTransaction.GetFormattedAmount(),
+				transactionDirection,
 				unclearedTransaction.Payee,
 				matchingTransfer.TransactionHash,
 			),
