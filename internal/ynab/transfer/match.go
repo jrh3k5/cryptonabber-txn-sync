@@ -76,12 +76,8 @@ func sameDate(a, b time.Time) bool {
 	bNorm := time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, time.UTC)
 	
 	// Calculate the absolute difference in days
-	diff := aNorm.Sub(bNorm)
-	absDiff := diff
-	if absDiff < 0 {
-		absDiff = -absDiff
-	}
+	diff := aNorm.Sub(bNorm).Abs()
 	
 	// Allow up to 24 hours difference (±1 day)
-	return absDiff <= 24*time.Hour
+	return diff <= 24*time.Hour
 }
