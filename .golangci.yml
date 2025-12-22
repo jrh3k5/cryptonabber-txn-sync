@@ -18,6 +18,8 @@ linters:
       rules:
         - name: package-comments
           disabled: true
+    funlen:
+      lines: 120
 formatters:
   enable:
     - gci
