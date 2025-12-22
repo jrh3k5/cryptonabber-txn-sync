@@ -15,10 +15,40 @@ import (
 
 type Transaction struct {
 	ID          string
+	Payee       string
 	Amount      int64
 	Date        time.Time
 	Description string
 	Cleared     bool
+}
+
+// GetFormattedAmount returns the transaction amount formatted as a string in dollars and cents.
+func (t *Transaction) GetFormattedAmount() string {
+	if t.Amount == 0 {
+		return "$0.00"
+	}
+
+	toFormat := t.Amount
+	isNegative := toFormat < 0
+	if isNegative {
+		toFormat = -toFormat
+	}
+
+	amountCents := toFormat % 1000             //nolint:mnd
+	dollars := (toFormat - amountCents) / 1000 //nolint:mnd
+	cents := amountCents / 10                  //nolint:mnd
+
+	signPrefix := ""
+	if isNegative {
+		signPrefix = "-"
+	}
+
+	return fmt.Sprintf("%s$%d.%02d", signPrefix, dollars, cents)
+}
+
+// IsOutbound returns true if the transaction amount is negative (i.e., money leaving the account).
+func (t *Transaction) IsOutbound() bool {
+	return t.Amount < 0
 }
 
 // GetTransactions fetches transactions from the YNAB API for a given budget and account.
@@ -80,11 +110,12 @@ func parseTransactionsFromBody(body io.Reader) ([]*Transaction, error) {
 	var envelope struct {
 		Data struct {
 			Transactions []struct {
-				ID      string `json:"id"`
-				Amount  int64  `json:"amount"`
-				Date    string `json:"date"`
-				Memo    string `json:"memo"`
-				Cleared string `json:"cleared"`
+				ID        string `json:"id"`
+				PayeeName string `json:"payee_name"`
+				Amount    int64  `json:"amount"`
+				Date      string `json:"date"`
+				Memo      string `json:"memo"`
+				Cleared   string `json:"cleared"`
 			} `json:"transactions"`
 		} `json:"data"`
 	}
@@ -102,6 +133,7 @@ func parseTransactionsFromBody(body io.Reader) ([]*Transaction, error) {
 
 		txns = append(txns, &Transaction{
 			ID:          t.ID,
+			Payee:       t.PayeeName,
 			Amount:      t.Amount,
 			Date:        dt,
 			Description: t.Memo,

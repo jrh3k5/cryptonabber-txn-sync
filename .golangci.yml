@@ -9,6 +9,7 @@ linters:
     - lll
     - nilnil
     - noinlineerr
+    - tagliatelle
     - varnamelen
     - wsl
     - wsl_v5
@@ -17,6 +18,8 @@ linters:
       rules:
         - name: package-comments
           disabled: true
+    funlen:
+      lines: 120
 formatters:
   enable:
     - gci

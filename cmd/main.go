@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	ctsslog "github.com/jrh3k5/cryptonabber-txn-sync/internal/logging/slog"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
@@ -28,6 +29,16 @@ const (
 
 func main() {
 	ctx := context.Background()
+
+	debugMode := isDebug()
+	if debugMode {
+		debugTextHandler := ctsslog.NewHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		})
+		slog.SetDefault(slog.New(debugTextHandler))
+
+		slog.DebugContext(ctx, "Running in debug mode; more detailed logging will be provided")
+	}
 
 	dryRun := isDryRun()
 	if dryRun {
@@ -116,7 +127,7 @@ func runSync(
 ) error {
 	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to select an account: %w", err)
 	}
 
 	unclearedTransactions, err := retrieveUnclearedTransactions(
@@ -128,13 +139,31 @@ func runSync(
 		time.Now().Add(-7*24*time.Hour),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to retrieve uncleared transactions: %w", err)
 	}
 
-	slog.InfoContext(
+	slog.DebugContext(
 		ctx,
 		fmt.Sprintf("Retrieved %d uncleared transactions", len(unclearedTransactions)),
 	)
+
+	for _, unclearedTransaction := range unclearedTransactions {
+		direction := "to"
+		if unclearedTransaction.IsOutbound() {
+			direction = "from"
+		}
+
+		slog.DebugContext(
+			ctx,
+			fmt.Sprintf(
+				"  - %s %s %s with description '%s'",
+				unclearedTransaction.GetFormattedAmount(),
+				direction,
+				unclearedTransaction.Payee,
+				unclearedTransaction.Description,
+			),
+		)
+	}
 
 	processUnclearedTransactions(
 		ctx,
@@ -326,10 +355,12 @@ func getTransfers(
 	return transfers, nil
 }
 
-func isDryRun() bool {
-	osArgs := os.Args[1:]
+func isDebug() bool {
+	return slices.Contains(os.Args[1:], "--debug")
+}
 
-	return slices.Contains(osArgs, "--dry-run")
+func isDryRun() bool {
+	return slices.Contains(os.Args[1:], "--dry-run")
 }
 
 func selectAccount(
@@ -394,6 +425,9 @@ func processUnclearedTransactions(
 	unclearedTransactions []*client.Transaction,
 	dryRun bool,
 ) {
+	matchedCount := 0
+	unmatchedCount := 0
+
 	for _, unclearedTransaction := range unclearedTransactions {
 		matchingTransfer := transfer.MatchTransfer(
 			unclearedTransaction,
@@ -402,27 +436,36 @@ func processUnclearedTransactions(
 			transfers,
 		)
 
+		transactionDirection := "from"
+		if unclearedTransaction.IsOutbound() {
+			transactionDirection = "to"
+		}
+
 		if matchingTransfer == nil {
 			slog.InfoContext(
 				ctx,
 				fmt.Sprintf(
-					"No matching transfer found for transaction ID '%s' on date %s with amount %d",
-					unclearedTransaction.ID,
-					unclearedTransaction.Date,
-					unclearedTransaction.Amount,
+					"No matching transfer of %s %s %s found",
+					unclearedTransaction.GetFormattedAmount(),
+					transactionDirection,
+					unclearedTransaction.Payee,
 				),
 			)
+
+			unmatchedCount++
 
 			continue
 		}
 
-		slog.InfoContext(
+		matchedCount++
+
+		slog.DebugContext(
 			ctx,
 			fmt.Sprintf(
-				"Found matching transfer for transaction ID '%s' on date %s with amount %d: %s",
-				unclearedTransaction.ID,
-				unclearedTransaction.Date,
-				unclearedTransaction.Amount,
+				"Matched transfer of %s %s %s to transaction hash %s",
+				unclearedTransaction.GetFormattedAmount(),
+				transactionDirection,
+				unclearedTransaction.Payee,
 				matchingTransfer.TransactionHash,
 			),
 		)
@@ -440,6 +483,21 @@ func processUnclearedTransactions(
 				)
 			}
 		}
+	}
+
+	slog.InfoContext(
+		ctx,
+		fmt.Sprintf("Matched %d transactions", matchedCount),
+	)
+
+	if unmatchedCount > 0 {
+		slog.InfoContext(
+			ctx,
+			fmt.Sprintf(
+				"Unable to match %d transactions; these may need to be manually matched or your CSV import may be out-of-date",
+				unmatchedCount,
+			),
+		)
 	}
 }
 

@@ -21,7 +21,7 @@ var _ = Describe("GetTransactions", func() {
 	It("returns parsed transactions on success and sets since_date", func() {
 		since := time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)
 
-		respBody := `{"data":{"transactions":[{"id":"tx1","amount":1000,"date":"2025-12-01","memo":"test memo","cleared":"uncleared"}]}}`
+		respBody := `{"data":{"transactions":[{"id":"tx1","payee_name":"John Doe","amount":1000,"date":"2025-12-01","memo":"test memo","cleared":"uncleared"}]}}`
 
 		httpmock.RegisterResponder(
 			"GET",
@@ -47,6 +47,7 @@ var _ = Describe("GetTransactions", func() {
 
 		txn := txns[0]
 		Expect(txn.ID).To(Equal("tx1"))
+		Expect(txn.Payee).To(Equal("John Doe"))
 		Expect(txn.Amount).To(Equal(int64(1000)))
 		Expect(txn.Description).To(Equal("test memo"))
 		Expect(txn.Cleared).To(BeFalse())
