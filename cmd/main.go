@@ -605,6 +605,10 @@ func resolveMatchingTransfer(
 		return nil, nil
 	}
 
+	if len(matchingTransfers) == 1 {
+		return matchingTransfers[0], nil
+	}
+
 	var matchingTransfer *transaction.Transfer
 	if len(matchingTransfers) > 1 {
 		promptText := fmt.Sprintf(
