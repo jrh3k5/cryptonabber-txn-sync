@@ -429,10 +429,10 @@ func isDryRun() bool {
 
 func resolveDirection(isOutbound bool) string {
 	if isOutbound {
-		return labelFrom
+		return labelTo
 	}
 
-	return labelTo
+	return labelFrom
 }
 
 func selectAccount(
