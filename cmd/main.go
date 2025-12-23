@@ -257,8 +257,9 @@ func chooseTransfer(
 		items = append(
 			items,
 			fmt.Sprintf(
-				"%s on %s (%s)",
+				"%s %s on %s (%s)",
 				xfr.FormatAmount(tokenDetails.Decimals),
+				tokenDetails.Name,
 				xfr.ExecutionTime.Format(time.RFC3339),
 				xfr.TransactionHash,
 			),

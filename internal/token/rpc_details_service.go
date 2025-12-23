@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -51,29 +52,72 @@ func (r *RPCDetailsService) GetTokenDetails(
 	contractAddress string,
 ) (*Details, error) {
 	// decimals() selector
-	data := "0x313ce567"
+	decimalsData := "0x313ce567"
+	// name() selector
+	nameData := "0x06fdde03"
 
-	// prepare params: call object and block param
-	callObj := map[string]string{
+	// prepare params: call object and block param for decimals
+	callObjDecimals := map[string]string{
 		"to":   contractAddress,
-		"data": data,
+		"data": decimalsData,
 	}
-
-	reqBody := rpcRequest{
+	reqBodyDecimals := rpcRequest{
 		JSONRPC: "2.0",
 		ID:      1,
 		Method:  "eth_call",
-		Params:  []any{callObj, "latest"},
+		Params:  []any{callObjDecimals, "latest"},
 	}
-
-	// perform the RPC call and decode the response
-	rpcResp, err := r.doRPC(ctx, reqBody)
+	rpcRespDecimals, err := r.doRPC(ctx, reqBodyDecimals)
 	if err != nil {
 		return nil, err
 	}
+	details, err := r.parseDecimalsFromResult(ctx, rpcRespDecimals.Result)
+	if err != nil || details == nil {
+		return details, err
+	}
 
-	// extract decimals from the result (may return nil, nil when no data)
-	return r.parseDecimalsFromResult(ctx, rpcResp.Result)
+	// prepare params for name
+	callObjName := map[string]string{
+		"to":   contractAddress,
+		"data": nameData,
+	}
+	reqBodyName := rpcRequest{
+		JSONRPC: "2.0",
+		ID:      2, //nolint:mnd
+		Method:  "eth_call",
+		Params:  []any{callObjName, "latest"},
+	}
+	rpcRespName, err := r.doRPC(ctx, reqBodyName)
+	if err == nil && rpcRespName.Result != "" && rpcRespName.Result != "0x" {
+		if name, nerr := parseNameFromResult(rpcRespName.Result); nerr == nil {
+			details.Name = name
+		}
+	}
+
+	return details, nil
+}
+
+// parseNameFromResult decodes the ERC20 name() result (dynamic string)
+func parseNameFromResult(res string) (string, error) {
+	if res == "" || res == "0x" {
+		return "", nil
+	}
+	b, err := hex.DecodeString(strings.TrimPrefix(res, "0x"))
+	if err != nil {
+		return "", fmt.Errorf("decode hex result: %w", err)
+	}
+	// ERC20 name() returns a dynamic string: offset (32 bytes), length (32 bytes), then utf-8 bytes
+	//nolint:mnd
+	if len(b) < 64 {
+		return "", errors.New("result too short for ERC20 name")
+	}
+	strlen := new(big.Int).SetBytes(b[32:64]).Int64()
+	if int64(len(b)) < 64+strlen {
+		return "", errors.New("result too short for name length")
+	}
+	nameBytes := b[64 : 64+strlen]
+
+	return string(nameBytes), nil
 }
 
 // doRPC sends a JSON-RPC request and decodes the response.
