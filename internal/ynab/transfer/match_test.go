@@ -40,29 +40,36 @@ var _ = Describe("MatchTransfers", func() {
 			))
 		})
 
-		It("matches inbound transfer by date, address, and amount", func() {
-			date := time.Date(2025, 12, 2, 0, 0, 0, 0, time.UTC)
-			ynabTxn := &clientpkg.Transaction{
-				ID:     "test-txn",
-				Amount: 2000,
-				Date:   date,
-			}
+		When("it is an inbound transfer", func() {
+			It("matches inbound transfer by date, address, and amount", func() {
+				date := time.Date(2025, 12, 2, 0, 0, 0, 0, time.UTC)
+				ynabTxn := &clientpkg.Transaction{
+					ID:     "test-txn",
+					Amount: 2000,
+					Date:   date,
+				}
 
-			tr := &ttx.Transfer{
-				FromAddress:     "0xother",
-				ToAddress:       strings.ToLower("0xAbc"),
-				Amount:          big.NewInt(2000000), // $2 -> 2 * 10^6
-				ExecutionTime:   date.Add(5 * time.Hour),
-				TransactionHash: "0xhash2",
-			}
+				tr := &ttx.Transfer{
+					FromAddress:     "0xother",
+					ToAddress:       strings.ToLower("0xAbc"),
+					Amount:          big.NewInt(2000000), // $2 -> 2 * 10^6
+					ExecutionTime:   date.Add(5 * time.Hour),
+					TransactionHash: "0xhash2",
+				}
 
-			tokenDetails := &token.Details{Decimals: 6}
+				tokenDetails := &token.Details{Decimals: 6}
 
-			matches := transfer.MatchTransfers(ynabTxn, "0xabc", tokenDetails, []*ttx.Transfer{tr})
-			Expect(matches).To(And(
-				HaveLen(1),
-				ContainElement(tr),
-			))
+				matches := transfer.MatchTransfers(
+					ynabTxn,
+					"0xabc",
+					tokenDetails,
+					[]*ttx.Transfer{tr},
+				)
+				Expect(matches).To(And(
+					HaveLen(1),
+					ContainElement(tr),
+				))
+			})
 		})
 
 		When("multiple transfers match", func() {

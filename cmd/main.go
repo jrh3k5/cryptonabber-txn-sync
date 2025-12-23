@@ -429,10 +429,10 @@ func isDryRun() bool {
 
 func resolveDirection(isOutbound bool) string {
 	if isOutbound {
-		return labelFrom
+		return labelTo
 	}
 
-	return labelTo
+	return labelFrom
 }
 
 func selectAccount(
@@ -603,6 +603,10 @@ func resolveMatchingTransfer(
 		)
 
 		return nil, nil
+	}
+
+	if len(matchingTransfers) == 1 {
+		return matchingTransfers[0], nil
 	}
 
 	var matchingTransfer *transaction.Transfer
