@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -238,13 +239,21 @@ func chooseBudget(ctx context.Context, budgets []*client.Budget) (*client.Budget
 }
 
 func chooseTransfer(
-	transaction *client.Transaction,
+	clientTransaction *client.Transaction,
 	tokenDetails *token.Details,
 	transfers []*transaction.Transfer,
 ) (*transaction.Transfer, error) {
+	sortedTransfers := make([]*transaction.Transfer, len(transfers))
+	copy(sortedTransfers, transfers)
+	// Sort transfers by execution time for easier selection.
+	// Earlier transfers will appear first in the list.
+	sort.Slice(sortedTransfers, func(i, j int) bool {
+		return sortedTransfers[i].ExecutionTime.Before(sortedTransfers[j].ExecutionTime)
+	})
+
 	// If multiple budgets are available, prompt the user to select one.
-	items := make([]string, 0, len(transfers))
-	for _, xfr := range transfers {
+	items := make([]string, 0, len(sortedTransfers))
+	for _, xfr := range sortedTransfers {
 		items = append(
 			items,
 			fmt.Sprintf(
@@ -258,10 +267,11 @@ func chooseTransfer(
 
 	prompt := promptui.Select{
 		Label: fmt.Sprintf(
-			"Multiple transfers matched the transfer of %s %s %s; please select the correct one",
-			transaction.GetFormattedAmount(),
-			resolveDirection(transaction.IsOutbound()),
-			transaction.Payee,
+			"Multiple transfers matched the transfer of %s %s %s with memo '%s'; please select the correct one",
+			clientTransaction.GetFormattedAmount(),
+			resolveDirection(clientTransaction.IsOutbound()),
+			clientTransaction.Payee,
+			clientTransaction.Description,
 		),
 		Items: items,
 	}
@@ -276,7 +286,7 @@ func chooseTransfer(
 		return nil, fmt.Errorf("transfer selection prompt failed: %w", err)
 	}
 
-	return transfers[i], nil
+	return sortedTransfers[i], nil
 }
 
 func findAccountID(accounts []*client.Account, name string) (string, error) {
