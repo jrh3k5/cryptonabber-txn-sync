@@ -151,17 +151,12 @@ func runSync(
 	)
 
 	for _, unclearedTransaction := range unclearedTransactions {
-		direction := labelTo
-		if unclearedTransaction.IsOutbound() {
-			direction = labelFrom
-		}
-
 		slog.DebugContext(
 			ctx,
 			fmt.Sprintf(
 				"  - %s %s %s with description '%s'",
 				unclearedTransaction.GetFormattedAmount(),
-				direction,
+				resolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 				unclearedTransaction.Description,
 			),
@@ -240,6 +235,48 @@ func chooseBudget(ctx context.Context, budgets []*client.Budget) (*client.Budget
 
 		return selected, nil
 	}
+}
+
+func chooseTransfer(
+	transaction *client.Transaction,
+	tokenDetails *token.Details,
+	transfers []*transaction.Transfer,
+) (*transaction.Transfer, error) {
+	// If multiple budgets are available, prompt the user to select one.
+	items := make([]string, 0, len(transfers))
+	for _, xfr := range transfers {
+		items = append(
+			items,
+			fmt.Sprintf(
+				"%s on %s (%s)",
+				xfr.FormatAmount(tokenDetails.Decimals),
+				xfr.ExecutionTime.Format(time.RFC3339),
+				xfr.TransactionHash,
+			),
+		)
+	}
+
+	prompt := promptui.Select{
+		Label: fmt.Sprintf(
+			"Multiple transfers matched the transfer of %s %s %s; please select the correct one",
+			transaction.GetFormattedAmount(),
+			resolveDirection(transaction.IsOutbound()),
+			transaction.Payee,
+		),
+		Items: items,
+	}
+
+	i, _, err := prompt.Run()
+	if err != nil {
+		// If the user canceled the prompt (Ctrl-C/Ctrl-D), exit with an error so the program stops.
+		if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
+			return nil, errors.New("transfer selection canceled")
+		}
+
+		return nil, fmt.Errorf("transfer selection prompt failed: %w", err)
+	}
+
+	return transfers[i], nil
 }
 
 func findAccountID(accounts []*client.Account, name string) (string, error) {
@@ -364,6 +401,14 @@ func isDryRun() bool {
 	return slices.Contains(os.Args[1:], "--dry-run")
 }
 
+func resolveDirection(isOutbound bool) string {
+	if isOutbound {
+		return labelFrom
+	}
+
+	return labelTo
+}
+
 func selectAccount(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -433,29 +478,18 @@ func processUnclearedTransactions(
 	copy(remainingTransfers, transfers)
 
 	for _, unclearedTransaction := range unclearedTransactions {
-		matchingTransfers := transfer.MatchTransfers(
+		matchingTransfer, err := resolveMatchingTransfer(
+			ctx,
 			unclearedTransaction,
 			walletAddress,
 			tokenDetails,
 			remainingTransfers,
 		)
-
-		transactionDirection := labelFrom
-		if unclearedTransaction.IsOutbound() {
-			transactionDirection = labelTo
+		if err != nil {
+			return fmt.Errorf("failed to resolve matching transfer: %w", err)
 		}
 
-		if len(matchingTransfers) == 0 {
-			slog.InfoContext(
-				ctx,
-				fmt.Sprintf(
-					"No matching transfer of %s %s %s found",
-					unclearedTransaction.GetFormattedAmount(),
-					transactionDirection,
-					unclearedTransaction.Payee,
-				),
-			)
-
+		if matchingTransfer == nil {
 			unmatchedCount++
 
 			continue
@@ -463,27 +497,12 @@ func processUnclearedTransactions(
 
 		matchedCount++
 
-		var matchingTransfer *transaction.Transfer
-		if len(matchingTransfers) > 1 {
-			var err error
-			matchingTransfer, err = chooseTransfer(
-				unclearedTransaction,
-				tokenDetails,
-				matchingTransfers,
-			)
-			if err != nil {
-				return fmt.Errorf("transfer selection failed: %w", err)
-			}
-		} else {
-			matchingTransfer = matchingTransfers[0]
-		}
-
 		slog.DebugContext(
 			ctx,
 			fmt.Sprintf(
 				"Matched transfer of %s %s %s to transaction hash %s",
 				unclearedTransaction.GetFormattedAmount(),
-				transactionDirection,
+				resolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 				matchingTransfer.TransactionHash,
 			),
@@ -529,6 +548,55 @@ func processUnclearedTransactions(
 	return nil
 }
 
+// resolveMatchingTransfer finds a matching transfer for the given uncleared transaction.
+// If multiple matching transfers are found, it prompts the user to select one.
+// If no matching transfers are found, it logs the absence and returns nil.
+func resolveMatchingTransfer(
+	ctx context.Context,
+	unclearedTransaction *client.Transaction,
+	walletAddress string,
+	tokenDetails *token.Details,
+	remainingTransfers []*transaction.Transfer,
+) (*transaction.Transfer, error) {
+	matchingTransfers := transfer.MatchTransfers(
+		unclearedTransaction,
+		walletAddress,
+		tokenDetails,
+		remainingTransfers,
+	)
+
+	if len(matchingTransfers) == 0 {
+		slog.InfoContext(
+			ctx,
+			fmt.Sprintf(
+				"No matching transfer of %s %s %s found",
+				unclearedTransaction.GetFormattedAmount(),
+				resolveDirection(unclearedTransaction.IsOutbound()),
+				unclearedTransaction.Payee,
+			),
+		)
+
+		return nil, nil
+	}
+
+	var matchingTransfer *transaction.Transfer
+	if len(matchingTransfers) > 1 {
+		var err error
+		matchingTransfer, err = chooseTransfer(
+			unclearedTransaction,
+			tokenDetails,
+			matchingTransfers,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("transfer selection failed: %w", err)
+		}
+
+		return matchingTransfer, nil
+	}
+
+	return matchingTransfers[0], nil
+}
+
 func handleMatchedTransaction(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -539,51 +607,4 @@ func handleMatchedTransaction(
 	}
 
 	return nil
-}
-
-func chooseTransfer(
-	transaction *client.Transaction,
-	tokenDetails *token.Details,
-	transfers []*transaction.Transfer,
-) (*transaction.Transfer, error) {
-	// If multiple budgets are available, prompt the user to select one.
-	items := make([]string, 0, len(transfers))
-	for _, xfr := range transfers {
-		items = append(
-			items,
-			fmt.Sprintf(
-				"%s on %s (%s)",
-				xfr.FormatAmount(tokenDetails.Decimals),
-				xfr.ExecutionTime.Format(time.RFC3339),
-				xfr.TransactionHash,
-			),
-		)
-	}
-
-	transactionDirection := labelFrom
-	if transaction.IsOutbound() {
-		transactionDirection = labelTo
-	}
-
-	prompt := promptui.Select{
-		Label: fmt.Sprintf(
-			"Multiple transfers matched the transfer of %s %s %s; please select the correct one",
-			transaction.GetFormattedAmount(),
-			transactionDirection,
-			transaction.Payee,
-		),
-		Items: items,
-	}
-
-	i, _, err := prompt.Run()
-	if err != nil {
-		// If the user canceled the prompt (Ctrl-C/Ctrl-D), exit with an error so the program stops.
-		if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
-			return nil, errors.New("transfer selection canceled")
-		}
-
-		return nil, fmt.Errorf("transfer selection prompt failed: %w", err)
-	}
-
-	return transfers[i], nil
 }
