@@ -239,6 +239,7 @@ func chooseBudget(ctx context.Context, budgets []*client.Budget) (*client.Budget
 }
 
 func chooseTransfer(
+	ctx context.Context,
 	clientTransaction *client.Transaction,
 	tokenDetails *token.Details,
 	transfers []*transaction.Transfer,
@@ -252,7 +253,9 @@ func chooseTransfer(
 	})
 
 	// If multiple budgets are available, prompt the user to select one.
-	items := make([]string, 0, len(sortedTransfers))
+	items := make([]string, 0, len(sortedTransfers)+1)
+	items = append(items, "Skip match")
+
 	for _, xfr := range sortedTransfers {
 		items = append(
 			items,
@@ -287,7 +290,13 @@ func chooseTransfer(
 		return nil, fmt.Errorf("transfer selection prompt failed: %w", err)
 	}
 
-	return sortedTransfers[i], nil
+	if i == 0 {
+		slog.DebugContext(ctx, "User opted to skip matching")
+
+		return nil, nil
+	}
+
+	return sortedTransfers[i-1], nil
 }
 
 func findAccountID(accounts []*client.Account, name string) (string, error) {
@@ -594,6 +603,7 @@ func resolveMatchingTransfer(
 	if len(matchingTransfers) > 1 {
 		var err error
 		matchingTransfer, err = chooseTransfer(
+			ctx,
 			unclearedTransaction,
 			tokenDetails,
 			matchingTransfers,
