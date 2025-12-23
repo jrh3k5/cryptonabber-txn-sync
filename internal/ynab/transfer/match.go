@@ -70,14 +70,14 @@ func sameDate(a, b time.Time) bool {
 	// we allow matching if dates are within ±1 day of each other.
 	// This accounts for cases where YNAB stores a date in local time
 	// but Etherscan records the UTC timestamp.
-	
+
 	// Normalize both times to midnight UTC for comparison
 	aNorm := time.Date(a.Year(), a.Month(), a.Day(), 0, 0, 0, 0, time.UTC)
 	bNorm := time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, time.UTC)
-	
+
 	// Calculate the absolute difference in days
 	diff := aNorm.Sub(bNorm).Abs()
-	
+
 	// Allow up to 24 hours difference (±1 day)
 	return diff <= 24*time.Hour
 }
