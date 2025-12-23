@@ -608,11 +608,12 @@ func resolveMatchingTransfer(
 	var matchingTransfer *transaction.Transfer
 	if len(matchingTransfers) > 1 {
 		promptText := fmt.Sprintf(
-			"Multiple transfers matched the transfer of %s %s %s with memo '%s'; please select the correct one",
+			"Multiple transfers matched the transfer of %s %s %s with memo '%s' on %s; please select the correct one",
 			unclearedTransaction.GetFormattedAmount(),
 			resolveDirection(unclearedTransaction.IsOutbound()),
 			unclearedTransaction.Payee,
 			unclearedTransaction.Description,
+			unclearedTransaction.Date.Format(time.DateOnly),
 		)
 
 		var err error
@@ -631,11 +632,12 @@ func resolveMatchingTransfer(
 	}
 
 	promptText := fmt.Sprintf(
-		"No transfers matched the transfer of %s %s %s with memo '%s'; please select one from the list of imported transfers",
+		"No transfers matched the transfer of %s %s %s with memo '%s' on %s; please select one from the list of imported transfers",
 		unclearedTransaction.GetFormattedAmount(),
 		resolveDirection(unclearedTransaction.IsOutbound()),
 		unclearedTransaction.Payee,
 		unclearedTransaction.Description,
+		unclearedTransaction.Date.Format(time.DateOnly),
 	)
 
 	var err error
