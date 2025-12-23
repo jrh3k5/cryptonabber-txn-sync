@@ -25,6 +25,9 @@ const (
 
 	// YNAB mock values
 	acountName = "Base USDC Hot Storage"
+
+	labelTo   = "to"
+	labelFrom = "from"
 )
 
 func main() {
@@ -148,9 +151,9 @@ func runSync(
 	)
 
 	for _, unclearedTransaction := range unclearedTransactions {
-		direction := "to"
+		direction := labelTo
 		if unclearedTransaction.IsOutbound() {
-			direction = "from"
+			direction = labelFrom
 		}
 
 		slog.DebugContext(
@@ -165,7 +168,7 @@ func runSync(
 		)
 	}
 
-	processUnclearedTransactions(
+	return processUnclearedTransactions(
 		ctx,
 		httpClient,
 		ynabAccessToken,
@@ -176,8 +179,6 @@ func runSync(
 		unclearedTransactions,
 		dryRun,
 	)
-
-	return nil
 }
 
 func filterUncleared(transactions []*client.Transaction) []*client.Transaction {
@@ -424,21 +425,24 @@ func processUnclearedTransactions(
 	transfers []*transaction.Transfer,
 	unclearedTransactions []*client.Transaction,
 	dryRun bool,
-) {
+) error {
 	matchedCount := 0
 	unmatchedCount := 0
+
+	remainingTransfers := make([]*transaction.Transfer, len(transfers))
+	copy(remainingTransfers, transfers)
 
 	for _, unclearedTransaction := range unclearedTransactions {
 		matchingTransfers := transfer.MatchTransfers(
 			unclearedTransaction,
 			walletAddress,
 			tokenDetails,
-			transfers,
+			remainingTransfers,
 		)
 
-		transactionDirection := "from"
+		transactionDirection := labelFrom
 		if unclearedTransaction.IsOutbound() {
-			transactionDirection = "to"
+			transactionDirection = labelTo
 		}
 
 		if len(matchingTransfers) == 0 {
@@ -459,8 +463,20 @@ func processUnclearedTransactions(
 
 		matchedCount++
 
-		// TODO: handle if there are multiple matching transfers
-		matchingTransfer := matchingTransfers[0]
+		var matchingTransfer *transaction.Transfer
+		if len(matchingTransfers) > 1 {
+			var err error
+			matchingTransfer, err = chooseTransfer(
+				unclearedTransaction,
+				tokenDetails,
+				matchingTransfers,
+			)
+			if err != nil {
+				return fmt.Errorf("transfer selection failed: %w", err)
+			}
+		} else {
+			matchingTransfer = matchingTransfers[0]
+		}
 
 		slog.DebugContext(
 			ctx,
@@ -486,6 +502,13 @@ func processUnclearedTransactions(
 				)
 			}
 		}
+
+		// Remove the matched transfer from remainingTransfers to prevent duplicate matches.
+		for i := len(remainingTransfers) - 1; i >= 0; i-- {
+			if remainingTransfers[i] == matchingTransfer {
+				remainingTransfers = append(remainingTransfers[:i], remainingTransfers[i+1:]...)
+			}
+		}
 	}
 
 	slog.InfoContext(
@@ -502,6 +525,8 @@ func processUnclearedTransactions(
 			),
 		)
 	}
+
+	return nil
 }
 
 func handleMatchedTransaction(
@@ -514,4 +539,51 @@ func handleMatchedTransaction(
 	}
 
 	return nil
+}
+
+func chooseTransfer(
+	transaction *client.Transaction,
+	tokenDetails *token.Details,
+	transfers []*transaction.Transfer,
+) (*transaction.Transfer, error) {
+	// If multiple budgets are available, prompt the user to select one.
+	items := make([]string, 0, len(transfers))
+	for _, xfr := range transfers {
+		items = append(
+			items,
+			fmt.Sprintf(
+				"%s on %s (%s)",
+				xfr.FormatAmount(tokenDetails.Decimals),
+				xfr.ExecutionTime.Format(time.RFC3339),
+				xfr.TransactionHash,
+			),
+		)
+	}
+
+	transactionDirection := labelFrom
+	if transaction.IsOutbound() {
+		transactionDirection = labelTo
+	}
+
+	prompt := promptui.Select{
+		Label: fmt.Sprintf(
+			"Multiple transfers matched the transfer of %s %s %s; please select the correct one",
+			transaction.GetFormattedAmount(),
+			transactionDirection,
+			transaction.Payee,
+		),
+		Items: items,
+	}
+
+	i, _, err := prompt.Run()
+	if err != nil {
+		// If the user canceled the prompt (Ctrl-C/Ctrl-D), exit with an error so the program stops.
+		if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
+			return nil, errors.New("transfer selection canceled")
+		}
+
+		return nil, fmt.Errorf("transfer selection prompt failed: %w", err)
+	}
+
+	return transfers[i], nil
 }
