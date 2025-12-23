@@ -40,29 +40,64 @@ var _ = Describe("MatchTransfers", func() {
 			))
 		})
 
-		It("matches inbound transfer by date, address, and amount", func() {
-			date := time.Date(2025, 12, 2, 0, 0, 0, 0, time.UTC)
-			ynabTxn := &clientpkg.Transaction{
-				ID:     "test-txn",
-				Amount: 2000,
-				Date:   date,
-			}
+		When("it is an inbound transfer", func() {
+			It("matches inbound transfer by date, address, and amount", func() {
+				date := time.Date(2025, 12, 2, 0, 0, 0, 0, time.UTC)
+				ynabTxn := &clientpkg.Transaction{
+					ID:     "test-txn",
+					Amount: 2000,
+					Date:   date,
+				}
 
-			tr := &ttx.Transfer{
-				FromAddress:     "0xother",
-				ToAddress:       strings.ToLower("0xAbc"),
-				Amount:          big.NewInt(2000000), // $2 -> 2 * 10^6
-				ExecutionTime:   date.Add(5 * time.Hour),
-				TransactionHash: "0xhash2",
-			}
+				tr := &ttx.Transfer{
+					FromAddress:     "0xother",
+					ToAddress:       strings.ToLower("0xAbc"),
+					Amount:          big.NewInt(2000000), // $2 -> 2 * 10^6
+					ExecutionTime:   date.Add(5 * time.Hour),
+					TransactionHash: "0xhash2",
+				}
 
-			tokenDetails := &token.Details{Decimals: 6}
+				tokenDetails := &token.Details{Decimals: 6}
 
-			matches := transfer.MatchTransfers(ynabTxn, "0xabc", tokenDetails, []*ttx.Transfer{tr})
-			Expect(matches).To(And(
-				HaveLen(1),
-				ContainElement(tr),
-			))
+				matches := transfer.MatchTransfers(ynabTxn, "0xabc", tokenDetails, []*ttx.Transfer{tr})
+				Expect(matches).To(And(
+					HaveLen(1),
+					ContainElement(tr),
+				))
+			})
+
+			When("it is a cash transfer", func() {
+				It("matches the transfer correctly", func() {
+					walletAddress := "0xCashWallet"
+
+					date := time.Date(2025, 12, 17, 0, 0, 0, 0, time.UTC)
+					ynabTxn := &clientpkg.Transaction{
+						ID:     "test-txn-cash",
+						Amount: 10000,
+						Date:   date,
+						Payee:  "Cash",
+					}
+
+					transferTime, err := time.Parse(time.RFC3339, "2025-12-17T20:27:31Z")
+					Expect(err).ToNot(HaveOccurred(), "parsing the transfer time should not fail")
+
+					tr := &ttx.Transfer{
+						FromAddress:     walletAddress,
+						ToAddress:       "0xother",
+						Amount:          big.NewInt(10000000), // $10 -> 10 * 10^6
+						ExecutionTime:   transferTime,
+						TransactionHash: "0xhash-cash",
+					}
+
+					tokenDetails := &token.Details{Decimals: 6}
+
+					matches := transfer.MatchTransfers(ynabTxn, walletAddress, tokenDetails, []*ttx.Transfer{tr})
+					Expect(matches).To(And(
+						HaveLen(1),
+						ContainElement(tr),
+					))
+				})
+			})
 		})
 
 		When("multiple transfers match", func() {
