@@ -10,12 +10,13 @@ import (
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
 )
 
-func MatchTransfer(
+// MatchTransfers attempts to find transfers that correspond to the given YNAB transaction.
+func MatchTransfers(
 	ynabTransaction *client.Transaction,
 	address string,
 	tokenDetails *token.Details,
 	transfers []*transaction.Transfer,
-) *transaction.Transfer {
+) []*transaction.Transfer {
 	if tokenDetails == nil {
 		return nil
 	}
@@ -35,6 +36,8 @@ func MatchTransfer(
 	).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil)
 	tmp := new(big.Int).Mul(big.NewInt(absAmt), scale)
 	expected := new(big.Int).Div(tmp, big.NewInt(1000)) //nolint:mnd
+
+	var matches []*transaction.Transfer
 
 	for _, tr := range transfers {
 		if !sameDate(tr.ExecutionTime, ynabTransaction.Date) {
@@ -58,11 +61,11 @@ func MatchTransfer(
 		}
 
 		if expected.Cmp(tr.Amount) == 0 {
-			return tr
+			matches = append(matches, tr)
 		}
 	}
 
-	return nil
+	return matches
 }
 
 func sameDate(a, b time.Time) bool {
