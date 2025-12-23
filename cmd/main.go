@@ -240,15 +240,21 @@ func chooseBudget(ctx context.Context, budgets []*client.Budget) (*client.Budget
 
 func chooseTransfer(
 	ctx context.Context,
-	clientTransaction *client.Transaction,
 	tokenDetails *token.Details,
 	transfers []*transaction.Transfer,
+	walletAddress string,
+	promptText string,
 ) (*transaction.Transfer, error) {
 	sortedTransfers := make([]*transaction.Transfer, len(transfers))
 	copy(sortedTransfers, transfers)
-	// Sort transfers by execution time for easier selection.
+	// Sort transfers by amount and then execution time for easier selection.
 	// Earlier transfers will appear first in the list.
 	sort.Slice(sortedTransfers, func(i, j int) bool {
+		byAmount := sortedTransfers[i].Amount.Cmp(sortedTransfers[j].Amount)
+		if byAmount != 0 {
+			return byAmount < 0
+		}
+
 		return sortedTransfers[i].ExecutionTime.Before(sortedTransfers[j].ExecutionTime)
 	})
 
@@ -257,10 +263,16 @@ func chooseTransfer(
 	items = append(items, "Skip match")
 
 	for _, xfr := range sortedTransfers {
+		amountSign := ""
+		if strings.EqualFold(xfr.FromAddress, walletAddress) {
+			amountSign = "-"
+		}
+
 		items = append(
 			items,
 			fmt.Sprintf(
-				"%s %s on %s (%s)",
+				"%s%s %s on %s (%s)",
+				amountSign,
 				xfr.FormatAmount(tokenDetails.Decimals),
 				tokenDetails.Name,
 				xfr.ExecutionTime.Format(time.RFC3339),
@@ -270,13 +282,7 @@ func chooseTransfer(
 	}
 
 	prompt := promptui.Select{
-		Label: fmt.Sprintf(
-			"Multiple transfers matched the transfer of %s %s %s with memo '%s'; please select the correct one",
-			clientTransaction.GetFormattedAmount(),
-			resolveDirection(clientTransaction.IsOutbound()),
-			clientTransaction.Payee,
-			clientTransaction.Description,
-		),
+		Label: promptText,
 		Items: items,
 	}
 
@@ -576,13 +582,13 @@ func resolveMatchingTransfer(
 	unclearedTransaction *client.Transaction,
 	walletAddress string,
 	tokenDetails *token.Details,
-	remainingTransfers []*transaction.Transfer,
+	transfers []*transaction.Transfer,
 ) (*transaction.Transfer, error) {
 	matchingTransfers := transfer.MatchTransfers(
 		unclearedTransaction,
 		walletAddress,
 		tokenDetails,
-		remainingTransfers,
+		transfers,
 	)
 
 	if len(matchingTransfers) == 0 {
@@ -601,12 +607,21 @@ func resolveMatchingTransfer(
 
 	var matchingTransfer *transaction.Transfer
 	if len(matchingTransfers) > 1 {
+		promptText := fmt.Sprintf(
+			"Multiple transfers matched the transfer of %s %s %s with memo '%s'; please select the correct one",
+			unclearedTransaction.GetFormattedAmount(),
+			resolveDirection(unclearedTransaction.IsOutbound()),
+			unclearedTransaction.Payee,
+			unclearedTransaction.Description,
+		)
+
 		var err error
 		matchingTransfer, err = chooseTransfer(
 			ctx,
-			unclearedTransaction,
 			tokenDetails,
 			matchingTransfers,
+			walletAddress,
+			promptText,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("transfer selection failed: %w", err)
@@ -615,7 +630,27 @@ func resolveMatchingTransfer(
 		return matchingTransfer, nil
 	}
 
-	return matchingTransfers[0], nil
+	promptText := fmt.Sprintf(
+		"No transfers matched the transfer of %s %s %s with memo '%s'; please select one from the list of imported transfers",
+		unclearedTransaction.GetFormattedAmount(),
+		resolveDirection(unclearedTransaction.IsOutbound()),
+		unclearedTransaction.Payee,
+		unclearedTransaction.Description,
+	)
+
+	var err error
+	matchingTransfer, err = chooseTransfer(
+		ctx,
+		tokenDetails,
+		transfers,
+		walletAddress,
+		promptText,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("transfer selection failed: %w", err)
+	}
+
+	return matchingTransfer, nil
 }
 
 func handleMatchedTransaction(
