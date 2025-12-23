@@ -104,7 +104,9 @@ var _ = Describe("rpcDetailsService", func() {
 
 	It("verifies JSON-RPC request payload contains correct method selector and to address", func() {
 		contract := "0xdeadbeef"
+		callCount := 0
 		httpmock.RegisterResponder("POST", rpcURL, func(req *http.Request) (*http.Response, error) {
+			callCount++
 			body, _ := io.ReadAll(req.Body)
 			var payload map[string]any
 			_ = json.Unmarshal(body, &payload)
@@ -115,15 +117,31 @@ var _ = Describe("rpcDetailsService", func() {
 			callObj, ok := params[0].(map[string]any)
 			Expect(ok).To(BeTrue())
 			Expect(callObj["to"]).To(Equal(contract))
-			Expect(callObj["data"]).To(Equal("0x313ce567"))
+			// Accept either decimals or name selector depending on call order
+			if callCount == 1 {
+				Expect(callObj["data"]).To(Equal("0x313ce567"))
 
-			return httpmock.NewStringResponse(200, `{"jsonrpc":"2.0","id":1,"result":"0x12"}`), nil
+				return httpmock.NewStringResponse(
+					200,
+					`{"jsonrpc":"2.0","id":1,"result":"0x12"}`,
+				), nil
+			} else {
+				Expect(callObj["data"]).To(Equal("0x06fdde03"))
+				// Return a minimal valid ERC20 name() response for the second call
+				nameHex := "0x" +
+					"0000000000000000000000000000000000000000000000000000000000000020" +
+					"0000000000000000000000000000000000000000000000000000000000000008" +
+					"55534420436f696e"
+
+				return httpmock.NewStringResponse(200, `{"jsonrpc":"2.0","id":2,"result":"`+nameHex+`"}`), nil
+			}
 		})
 
 		tokenDetails, err := detailsService.GetTokenDetails(ctx, contract)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(tokenDetails).ToNot(BeNil())
 		Expect(tokenDetails.Decimals).To(Equal(18))
+		Expect(tokenDetails.Name).To(Equal("USD Coin"))
 	})
 
 	When("decimals value exceeds max int", func() {
