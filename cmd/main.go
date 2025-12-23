@@ -429,7 +429,7 @@ func processUnclearedTransactions(
 	unmatchedCount := 0
 
 	for _, unclearedTransaction := range unclearedTransactions {
-		matchingTransfer := transfer.MatchTransfer(
+		matchingTransfers := transfer.MatchTransfers(
 			unclearedTransaction,
 			walletAddress,
 			tokenDetails,
@@ -441,7 +441,7 @@ func processUnclearedTransactions(
 			transactionDirection = "to"
 		}
 
-		if matchingTransfer == nil {
+		if len(matchingTransfers) == 0 {
 			slog.InfoContext(
 				ctx,
 				fmt.Sprintf(
@@ -458,6 +458,9 @@ func processUnclearedTransactions(
 		}
 
 		matchedCount++
+
+		// TODO: handle if there are multiple matching transfers
+		matchingTransfer := matchingTransfers[0]
 
 		slog.DebugContext(
 			ctx,
