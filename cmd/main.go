@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net/http"
 	"os"
 	"slices"
@@ -164,7 +165,7 @@ func runSync(
 		)
 	}
 
-	return processUnclearedTransactions(
+	remainingTransfers, err := processUnclearedTransactions(
 		ctx,
 		httpClient,
 		ynabAccessToken,
@@ -175,6 +176,50 @@ func runSync(
 		unclearedTransactions,
 		dryRun,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to process uncleared transactions: %w", err)
+	}
+
+	return importRemainingTransfers(
+		ctx,
+		httpClient,
+		ynabAccessToken,
+		budget.ID,
+		chosenAccountID,
+		remainingTransfers,
+		tokenDetails,
+	)
+}
+
+func importRemainingTransfers(
+	ctx context.Context,
+	httpClient *http.Client,
+	ynabAccessToken string,
+	budgetID string,
+	accountID string,
+	transfers []*transaction.Transfer,
+	tokenDetails *token.Details,
+) error {
+	minimumAmount := big.NewInt(1)
+	minimumAmount.Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals-2)), nil) // 0.01 token
+
+	for _, xfr := range transfers {
+		if xfr.Amount.Cmp(minimumAmount) < 0 {
+			slog.DebugContext(
+				ctx,
+				fmt.Sprintf(
+					"transaction with hash '%s' and amount %s is less than the minimum (%s)",
+					xfr.Amount.Text(10),
+					xfr.TransactionHash,
+					minimumAmount.Text(10),
+				),
+			)
+
+			continue
+		}
+	}
+
+	return nil
 }
 
 func filterUncleared(transactions []*client.Transaction) []*client.Transaction {
@@ -486,6 +531,8 @@ func retrieveUnclearedTransactions(
 	return filterUncleared(transactions), nil
 }
 
+// processUnclearedTransactions attempts to match each uncleared transaction with a transfer.
+// It returns any remaining unconsumed transfers after processing.
 func processUnclearedTransactions(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -496,7 +543,7 @@ func processUnclearedTransactions(
 	transfers []*transaction.Transfer,
 	unclearedTransactions []*client.Transaction,
 	dryRun bool,
-) error {
+) ([]*transaction.Transfer, error) {
 	matchedCount := 0
 	unmatchedCount := 0
 
@@ -512,7 +559,7 @@ func processUnclearedTransactions(
 			remainingTransfers,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to resolve matching transfer: %w", err)
+			return nil, fmt.Errorf("failed to resolve matching transfer: %w", err)
 		}
 
 		if matchingTransfer == nil {
@@ -571,7 +618,7 @@ func processUnclearedTransactions(
 		)
 	}
 
-	return nil
+	return remainingTransfers, nil
 }
 
 // resolveMatchingTransfer finds a matching transfer for the given uncleared transaction.
