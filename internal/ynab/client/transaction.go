@@ -274,3 +274,126 @@ func updateTransaction(
 
 	return nil
 }
+
+// CreateTransactionRequest represents the data needed to create a new transaction.
+type CreateTransactionRequest struct {
+	AccountID  string
+	Date       time.Time
+	Amount     int64
+	PayeeID    *string
+	PayeeName  *string
+	CategoryID *string
+	Memo       *string
+	Cleared    *string
+	Approved   *bool
+	FlagColor  *string
+}
+
+// CreateTransaction creates a new transaction in YNAB.
+// Required fields: AccountID, Date, Amount.
+// Returns the created transaction details.
+func CreateTransaction(
+	ctx context.Context,
+	client ctshttp.Doer,
+	accessToken string,
+	budgetID string,
+	req CreateTransactionRequest,
+) (*Transaction, error) {
+	requestPath, err := url.JoinPath(apiURL, "budgets", budgetID, "transactions")
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request path for creating transaction: %w", err)
+	}
+
+	// Build the request payload
+	payload := struct {
+		Transaction struct {
+			AccountID  string  `json:"account_id"`
+			Date       string  `json:"date"`
+			Amount     int64   `json:"amount"`
+			PayeeID    *string `json:"payee_id,omitempty"`
+			PayeeName  *string `json:"payee_name,omitempty"`
+			CategoryID *string `json:"category_id,omitempty"`
+			Memo       *string `json:"memo,omitempty"`
+			Cleared    *string `json:"cleared,omitempty"`
+			Approved   *bool   `json:"approved,omitempty"`
+			FlagColor  *string `json:"flag_color,omitempty"`
+		} `json:"transaction"`
+	}{}
+
+	payload.Transaction.AccountID = req.AccountID
+	payload.Transaction.Date = req.Date.Format("2006-01-02")
+	payload.Transaction.Amount = req.Amount
+	payload.Transaction.PayeeID = req.PayeeID
+	payload.Transaction.PayeeName = req.PayeeName
+	payload.Transaction.CategoryID = req.CategoryID
+	payload.Transaction.Memo = req.Memo
+	payload.Transaction.Cleared = req.Cleared
+	payload.Transaction.Approved = req.Approved
+	payload.Transaction.FlagColor = req.FlagColor
+
+	bodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal transaction create request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		requestPath,
+		strings.NewReader(string(bodyBytes)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create HTTP request for creating transaction: %w", err)
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+accessToken)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request for creating transaction: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("ynab API returned status %d on create", resp.StatusCode)
+	}
+
+	// Parse the response
+	var envelope struct {
+		Data struct {
+			Transaction struct {
+				ID         string  `json:"id"`
+				AccountID  string  `json:"account_id"`
+				PayeeName  string  `json:"payee_name"`
+				PayeeID    *string `json:"payee_id"`
+				Amount     int64   `json:"amount"`
+				Date       string  `json:"date"`
+				Memo       string  `json:"memo"`
+				Cleared    string  `json:"cleared"`
+				Approved   bool    `json:"approved"`
+				CategoryID *string `json:"category_id"`
+				FlagColor  *string `json:"flag_color"`
+			} `json:"transaction"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("failed to decode create transaction response: %w", err)
+	}
+
+	t := envelope.Data.Transaction
+	var dt time.Time
+	if t.Date != "" {
+		dt, _ = time.Parse("2006-01-02", t.Date)
+	}
+
+	return &Transaction{
+		ID:          t.ID,
+		Payee:       t.PayeeName,
+		Amount:      t.Amount,
+		Date:        dt,
+		Description: t.Memo,
+		Cleared:     !strings.EqualFold(t.Cleared, transactionClearedStatusUncleared),
+	}, nil
+}
