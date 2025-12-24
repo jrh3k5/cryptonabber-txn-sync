@@ -188,6 +188,7 @@ func runSync(
 		chosenAccountID,
 		remainingTransfers,
 		tokenDetails,
+		walletAddress,
 	)
 }
 
@@ -199,24 +200,153 @@ func importRemainingTransfers(
 	accountID string,
 	transfers []*transaction.Transfer,
 	tokenDetails *token.Details,
+	walletAddress string,
 ) error {
+	// Minimum amount threshold in base units: 10^(decimals-2) => 0.01 token
 	minimumAmount := big.NewInt(1)
-	minimumAmount.Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals-2)), nil) // 0.01 token
+	minimumAmount.Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals-2)), nil)
 
 	for _, xfr := range transfers {
+		// Only consider transfers involving the specified wallet
+		isOutbound := false
+		counterparty := ""
+		if strings.EqualFold(xfr.FromAddress, walletAddress) {
+			isOutbound = true
+			counterparty = xfr.ToAddress
+		} else if strings.EqualFold(xfr.ToAddress, walletAddress) {
+			isOutbound = false
+			counterparty = xfr.FromAddress
+		} else {
+			// Not related to the wallet; skip
+			continue
+		}
+
 		if xfr.Amount.Cmp(minimumAmount) < 0 {
 			slog.DebugContext(
 				ctx,
 				fmt.Sprintf(
 					"transaction with hash '%s' and amount %s is less than the minimum (%s)",
-					xfr.Amount.Text(10),
 					xfr.TransactionHash,
+					xfr.Amount.Text(10),
 					minimumAmount.Text(10),
 				),
 			)
 
 			continue
 		}
+
+		// Present the transfer details and ask whether to create a YNAB transaction
+		details := fmt.Sprintf(
+			"%s %s %s on %s %s %s",
+			// add sign for readability
+			func() string {
+				if isOutbound {
+					return "-"
+				}
+				return "+"
+			}(),
+			xfr.FormatAmount(tokenDetails.Decimals),
+			tokenDetails.Name,
+			xfr.ExecutionTime.Format(time.RFC3339),
+			resolveDirection(isOutbound),
+			counterparty,
+		)
+
+		selector := promptui.Select{
+			Label: "Create YNAB transaction for " + details + "?",
+			Items: []string{"Create", "Skip"},
+		}
+
+		selIdx, _, err := selector.Run()
+		if err != nil {
+			if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
+				return errors.New("transaction creation canceled")
+			}
+			return fmt.Errorf("transaction creation prompt failed: %w", err)
+		}
+		if selIdx != 0 { // Skip
+			continue
+		}
+
+		// Prompt for payee name (default to counterparty address)
+		payeePrompt := promptui.Prompt{
+			Label:   "Payee name",
+			Default: counterparty,
+		}
+		payeeName, err := payeePrompt.Run()
+		if err != nil {
+			if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
+				return errors.New("payee prompt canceled")
+			}
+			return fmt.Errorf("payee prompt failed: %w", err)
+		}
+
+		// Prompt for memo (default to the transaction hash)
+		memoPrompt := promptui.Prompt{
+			Label:   "Memo (will auto-append transaction hash)",
+			Default: xfr.TransactionHash,
+		}
+		memoText, err := memoPrompt.Run()
+		if err != nil {
+			if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
+				return errors.New("memo prompt canceled")
+			}
+			return fmt.Errorf("memo prompt failed: %w", err)
+		}
+
+		if !strings.Contains(memoText, xfr.TransactionHash) {
+			memoText += "; transaction hash: " + xfr.TransactionHash
+		}
+
+		// Convert token amount (base units) to YNAB milliunits
+		// milliunits = amount_base_units * 1000 / 10^decimals
+		num := new(big.Int).Mul(xfr.Amount, big.NewInt(1000))
+		denom := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil)
+		ynabMilli := new(big.Int).Quo(num, denom)
+		if isOutbound {
+			ynabMilli.Neg(ynabMilli)
+		}
+
+		// Sanity check: ensure ynabMilli fits in int64
+		if ynabMilli.BitLen() > 63 {
+			slog.WarnContext(ctx, "computed amount exceeds int64; skipping", "amount", ynabMilli.String())
+			continue
+		}
+
+		amountInt64 := ynabMilli.Int64()
+		cleared := "uncleared"
+		req := client.CreateTransactionRequest{
+			AccountID: accountID,
+			Date:      xfr.ExecutionTime,
+			Amount:    amountInt64,
+			PayeeName: &payeeName,
+			Memo:      &memoText,
+			Cleared:   &cleared,
+		}
+
+		created, err := client.CreateTransaction(ctx, httpClient, ynabAccessToken, budgetID, req)
+		if err != nil {
+			slog.ErrorContext(
+				ctx,
+				"Failed to create transaction",
+				"error",
+				err,
+				"hash",
+				xfr.TransactionHash,
+			)
+			continue
+		}
+
+		slog.InfoContext(
+			ctx,
+			"Created YNAB transaction",
+			"id",
+			created.ID,
+			"amount",
+			created.GetFormattedAmount(),
+			"payee",
+			created.Payee,
+		)
 	}
 
 	return nil
