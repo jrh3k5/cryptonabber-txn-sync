@@ -204,19 +204,20 @@ func importRemainingTransfers(
 ) error {
 	// Minimum amount threshold in base units: 10^(decimals-2) => 0.01 token
 	minimumAmount := big.NewInt(1)
-	minimumAmount.Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals-2)), nil)
+	minimumAmount.Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals-2)), nil) //nolint:mnd
 
 	for _, xfr := range transfers {
 		// Only consider transfers involving the specified wallet
 		isOutbound := false
-		counterparty := ""
-		if strings.EqualFold(xfr.FromAddress, walletAddress) {
+		var counterparty string
+		switch {
+		case strings.EqualFold(xfr.FromAddress, walletAddress):
 			isOutbound = true
 			counterparty = xfr.ToAddress
-		} else if strings.EqualFold(xfr.ToAddress, walletAddress) {
+		case strings.EqualFold(xfr.ToAddress, walletAddress):
 			isOutbound = false
 			counterparty = xfr.FromAddress
-		} else {
+		default:
 			// Not related to the wallet; skip
 			continue
 		}
@@ -227,8 +228,8 @@ func importRemainingTransfers(
 				fmt.Sprintf(
 					"transaction with hash '%s' and amount %s is less than the minimum (%s)",
 					xfr.TransactionHash,
-					xfr.Amount.Text(10),
-					minimumAmount.Text(10),
+					xfr.Amount.Text(10),    //nolint:mnd
+					minimumAmount.Text(10), //nolint:mnd
 				),
 			)
 
@@ -243,6 +244,7 @@ func importRemainingTransfers(
 				if isOutbound {
 					return "-"
 				}
+
 				return "+"
 			}(),
 			xfr.FormatAmount(tokenDetails.Decimals),
@@ -262,6 +264,7 @@ func importRemainingTransfers(
 			if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
 				return errors.New("transaction creation canceled")
 			}
+
 			return fmt.Errorf("transaction creation prompt failed: %w", err)
 		}
 		if selIdx != 0 { // Skip
@@ -278,6 +281,7 @@ func importRemainingTransfers(
 			if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
 				return errors.New("payee prompt canceled")
 			}
+
 			return fmt.Errorf("payee prompt failed: %w", err)
 		}
 
@@ -291,6 +295,7 @@ func importRemainingTransfers(
 			if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
 				return errors.New("memo prompt canceled")
 			}
+
 			return fmt.Errorf("memo prompt failed: %w", err)
 		}
 
@@ -300,16 +305,29 @@ func importRemainingTransfers(
 
 		// Convert token amount (base units) to YNAB milliunits
 		// milliunits = amount_base_units * 1000 / 10^decimals
-		num := new(big.Int).Mul(xfr.Amount, big.NewInt(1000))
-		denom := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil)
+		//nolint:mnd
+		num := new(
+			big.Int,
+		).Mul(xfr.Amount, big.NewInt(1000))
+		//nolint:mnd
+		denom := new(
+			big.Int,
+		).Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals)), nil)
 		ynabMilli := new(big.Int).Quo(num, denom)
 		if isOutbound {
 			ynabMilli.Neg(ynabMilli)
 		}
 
 		// Sanity check: ensure ynabMilli fits in int64
+		//nolint:mnd
 		if ynabMilli.BitLen() > 63 {
-			slog.WarnContext(ctx, "computed amount exceeds int64; skipping", "amount", ynabMilli.String())
+			slog.WarnContext(
+				ctx,
+				"computed amount exceeds int64; skipping",
+				"amount",
+				ynabMilli.String(),
+			)
+
 			continue
 		}
 
@@ -334,6 +352,7 @@ func importRemainingTransfers(
 				"hash",
 				xfr.TransactionHash,
 			)
+
 			continue
 		}
 
