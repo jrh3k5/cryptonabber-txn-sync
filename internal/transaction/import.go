@@ -42,10 +42,25 @@ func newTransferImporter(
 	tokenDetails *token.Details,
 	walletAddress string,
 	ignoreList *IgnoreList,
-) *transferImporter {
+) (*transferImporter, error) {
+	decimalPrecision := 2
+
+	tokenDecimals := tokenDetails.Decimals
+	if tokenDecimals < decimalPrecision {
+		return nil, fmt.Errorf(
+			"tokens with fewer than 2 decimals (%d) are not supported",
+			tokenDecimals,
+		)
+	}
+
 	// Minimum amount threshold in base units: 10^(decimals-2) => 0.01 token
 	minimumAmount := big.NewInt(1)
-	minimumAmount.Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals-2)), nil) //nolint:mnd
+	//nolint:mnd
+	minimumAmount.Exp(
+		big.NewInt(10),
+		big.NewInt(int64(tokenDecimals-decimalPrecision)),
+		nil,
+	)
 
 	return &transferImporter{
 		httpClient:      httpClient,
@@ -56,7 +71,7 @@ func newTransferImporter(
 		walletAddress:   walletAddress,
 		ignoreList:      ignoreList,
 		minimumAmount:   minimumAmount,
-	}
+	}, nil
 }
 
 func (p *transferImporter) processTransfers(
@@ -356,7 +371,7 @@ func ImportRemainingTransfers(
 	walletAddress string,
 	ignoreList *IgnoreList,
 ) error {
-	processor := newTransferImporter(
+	processor, err := newTransferImporter(
 		httpClient,
 		ynabAccessToken,
 		budgetID,
@@ -365,6 +380,9 @@ func ImportRemainingTransfers(
 		walletAddress,
 		ignoreList,
 	)
+	if err != nil {
+		return err
+	}
 
 	return processor.processTransfers(ctx, transfers)
 }
