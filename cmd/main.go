@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -50,7 +49,24 @@ func main() {
 		slog.InfoContext(ctx, "Running in dry-run mode; no changes will be made to YNAB")
 	}
 
-	walletAddress, tokenAddress, httpClient, tokenDetails, transfers, err := initRun(ctx)
+	ignoreList, err := readIgnoreList(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to read ignore list", "error", err)
+
+		return
+	}
+
+	// Schedule the ignore list to be written
+	defer func() {
+		if err := writeIgnoreList(ignoreList); err != nil {
+			slog.ErrorContext(ctx, "Failed to write ignore list", "error", err)
+		}
+	}()
+
+	walletAddress, tokenAddress, httpClient, tokenDetails, transfers, err := initRun(
+		ctx,
+		ignoreList,
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "Initialization failed", "error", err)
 
@@ -68,83 +84,6 @@ func main() {
 		),
 	)
 
-	ignoreFileExists, err := ctsio.FileExists(ignoreListFilename)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to check for ignore list file", "error", err)
-
-		return
-	}
-
-	var ignoreList *transaction.IgnoreList
-	if ignoreFileExists {
-		readHandle, err := os.Open(ignoreListFilename)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to open ignore list file", "error", err)
-
-			return
-		}
-		defer func() { _ = readHandle.Close() }()
-
-		ignoreList, err = transaction.FromYAML(readHandle)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to parse ignore list file", "error", err)
-
-			return
-		}
-
-		slog.InfoContext(
-			ctx,
-			fmt.Sprintf("Loaded %d entries from ignore list", ignoreList.GetHashCount()),
-		)
-	} else {
-		ignoreList = transaction.NewIgnoreList()
-	}
-
-	// Filter out any ignored transfers
-	for i := len(transfers) - 1; i >= 0; i-- {
-		xfr := transfers[i]
-		if ignoreList.IsHashIgnored(xfr.TransactionHash) {
-			slog.DebugContext(
-				ctx,
-				fmt.Sprintf(
-					"Ignoring transfer with hash %s as it is present in the ignore list",
-					xfr.TransactionHash,
-				),
-			)
-
-			transfers = append(transfers[:i], transfers[i+1:]...)
-		}
-	}
-
-	// Schedule the writing of all ignored entries
-	var writeHandle *os.File
-	if !ignoreFileExists {
-		writeHandle, err = os.Create(ignoreListFilename)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to create ignore list file", "err", err)
-
-			return
-		}
-	} else {
-		//nolint:gosec,mnd // no need to keep this at 600 or less
-		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY, 0o644)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to open file for writing ignore list to file", "err", err)
-
-			return
-		}
-	}
-	defer func() {
-		_ = writeHandle.Close()
-	}()
-
-	defer func(writer io.Writer) {
-		err := transaction.ToYAML(ignoreList, writer)
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to write ignore list to YAML", "err", err)
-		}
-	}(writeHandle)
-
 	ynabAccessToken, err := getAccessToken()
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to get YNAB access token", "error", err)
@@ -161,6 +100,7 @@ func main() {
 
 func initRun(
 	ctx context.Context,
+	ignoreList *transaction.IgnoreList,
 ) (
 	string,
 	string,
@@ -194,6 +134,8 @@ func initRun(
 	if err != nil {
 		return "", "", nil, nil, nil, fmt.Errorf("failed to get transfers: %w", err)
 	}
+
+	transfers = filterIgnoredTransfers(ignoreList, transfers)
 
 	return walletAddress, tokenAddress, httpClient, tokenDetails, transfers, nil
 }
@@ -405,6 +347,23 @@ func chooseTransfer(
 	return sortedTransfers[i-1], nil
 }
 
+// filterIgnoredTransfers removes any transfers from the input slice that are present in the ignore list.
+func filterIgnoredTransfers(
+	ignoreList *transaction.IgnoreList,
+	transfers []*transaction.Transfer,
+) []*transaction.Transfer {
+	filteredTransfers := make([]*transaction.Transfer, 0, len(transfers))
+	for _, xfr := range transfers {
+		if ignoreList.IsHashIgnored(xfr.TransactionHash) {
+			continue
+		}
+
+		filteredTransfers = append(filteredTransfers, xfr)
+	}
+
+	return filteredTransfers
+}
+
 func findAccountID(accounts []*client.Account, name string) (string, error) {
 	for _, acct := range accounts {
 		if acct.Name == name {
@@ -525,6 +484,39 @@ func isDebug() bool {
 
 func isDryRun() bool {
 	return slices.Contains(os.Args[1:], "--dry-run")
+}
+
+// readIgnoreList reads the ignore list from the ignore list file if it exists.
+func readIgnoreList(ctx context.Context) (*transaction.IgnoreList, error) {
+	ignoreFileExists, err := ctsio.FileExists(ignoreListFilename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for ignore list file: %w", err)
+	}
+
+	var ignoreList *transaction.IgnoreList
+	if ignoreFileExists {
+		readHandle, err := os.Open(ignoreListFilename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open ignore list file: %w", err)
+		}
+		defer func() { _ = readHandle.Close() }()
+
+		ignoreList, err = transaction.FromYAML(readHandle)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse ignore list file: %w", err)
+		}
+
+		slog.InfoContext(
+			ctx,
+			fmt.Sprintf("Loaded %d entries from ignore list", ignoreList.GetHashCount()),
+		)
+
+		return ignoreList, nil
+	}
+
+	ignoreList = transaction.NewIgnoreList()
+
+	return ignoreList, nil
 }
 
 func selectAccount(
@@ -763,6 +755,41 @@ func handleMatchedTransaction(
 ) error {
 	if err := client.MarkTransactionClearedAndAppendMemo(ctx, httpClient, accessToken, budgetID, transactionID, txHash); err != nil {
 		return fmt.Errorf("failed to update transaction %s: %w", transactionID, err)
+	}
+
+	return nil
+}
+
+// writeIgnoreList writes the ignore list to the ignore list file.
+func writeIgnoreList(
+	ignoreList *transaction.IgnoreList,
+) error {
+	ignoreFileExists, err := ctsio.FileExists(ignoreListFilename)
+	if err != nil {
+		return fmt.Errorf("failed to check for ignore list file: %w", err)
+	}
+
+	// Schedule the writing of all ignored entries
+	var writeHandle *os.File
+	if !ignoreFileExists {
+		writeHandle, err = os.Create(ignoreListFilename)
+		if err != nil {
+			return fmt.Errorf("failed to create ignore list file: %w", err)
+		}
+	} else {
+		//nolint:gosec,mnd // no need to keep this at 600 or less
+		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY, 0o644)
+		if err != nil {
+			return fmt.Errorf("failed to open file for writing ignore list to file: %w", err)
+		}
+	}
+	defer func() {
+		_ = writeHandle.Close()
+	}()
+
+	err = transaction.ToYAML(ignoreList, writeHandle)
+	if err != nil {
+		return fmt.Errorf("failed to write ignore list to YAML: %w", err)
 	}
 
 	return nil
