@@ -22,8 +22,9 @@ func NewIgnoreList() *IgnoreList {
 // AddProcessedHash adds a record of a transaction hash being associated to a particular transaction in YNAB.
 func (i *IgnoreList) AddProcessedHash(transactionHash string, ynabTransactionID string) {
 	ignoredHash := IgnoredHash{
-		Hash:   transactionHash,
-		Reason: fmt.Sprintf("Processed for transaction ID %s on %s", ynabTransactionID, time.Now().Format(time.DateOnly)),
+		Hash:    transactionHash,
+		Reason:  fmt.Sprintf("Processed for transaction ID %s on %s", ynabTransactionID, time.Now().Format(time.DateOnly)),
+		addedOn: time.Now().Format(time.DateOnly),
 	}
 	i.hashes = append(i.hashes, ignoredHash)
 }
@@ -31,8 +32,9 @@ func (i *IgnoreList) AddProcessedHash(transactionHash string, ynabTransactionID 
 // AddIgnoredHash adds a transaction hash to the ignore list with a reason.
 func (i *IgnoreList) AddIgnoredHash(transactionHash string) {
 	ignoredHash := IgnoredHash{
-		Hash:   transactionHash,
-		Reason: fmt.Sprintf("Marked as ignored on %s", time.Now().Format(time.DateOnly)),
+		Hash:    transactionHash,
+		Reason:  fmt.Sprintf("Marked as ignored on %s", time.Now().Format(time.DateOnly)),
+		addedOn: time.Now().Format(time.DateOnly),
 	}
 	i.hashes = append(i.hashes, ignoredHash)
 }
@@ -63,8 +65,9 @@ func (i *IgnoreList) GetHashes() []IgnoredHash {
 
 // IgnoredHash represents an ignored transaction hash.
 type IgnoredHash struct {
-	Hash   string // transaction hash
-	Reason string // reason for ignoring the transaction
+	Hash    string // transaction hash
+	Reason  string // reason for ignoring the transaction
+	addedOn string // date this hash was added to the ignore list (for serialization only)
 }
 
 // FromYAML reads an IgnoreList from a YAML representation.
@@ -78,8 +81,9 @@ func FromYAML(reader io.Reader) (*IgnoreList, error) {
 	ignoreList := NewIgnoreList()
 	for _, ymlHash := range ymlList.IgnoredHashes {
 		ignoredHash := &IgnoredHash{
-			Hash:   ymlHash.Hash,
-			Reason: ymlHash.Reason,
+			Hash:    ymlHash.Hash,
+			Reason:  ymlHash.Reason,
+			addedOn: ymlHash.AddedOn,
 		}
 		ignoreList.hashes = append(ignoreList.hashes, *ignoredHash)
 	}
@@ -92,8 +96,9 @@ func ToYAML(ignoreList *IgnoreList, writer io.Writer) error {
 	var ymlList yamlIgnoreList
 	for _, hash := range ignoreList.hashes {
 		ymlHash := &yamlIgnoredHash{
-			Hash:   hash.Hash,
-			Reason: hash.Reason,
+			Hash:    hash.Hash,
+			Reason:  hash.Reason,
+			AddedOn: hash.addedOn,
 		}
 		ymlList.IgnoredHashes = append(ymlList.IgnoredHashes, *ymlHash)
 	}
@@ -111,8 +116,9 @@ func ToYAML(ignoreList *IgnoreList, writer io.Writer) error {
 
 // yamlIgnoreList is an internal struct for YAML serialization.
 type yamlIgnoredHash struct {
-	Hash   string `yaml:"hash"`   // transaction hash
-	Reason string `yaml:"reason"` // reason for ignoring the transaction
+	Hash    string `yaml:"hash"`               // transaction hash
+	Reason  string `yaml:"reason"`             // reason for ignoring the transaction
+	AddedOn string `yaml:"added_on,omitempty"` // date this hash was added to the ignore list
 }
 
 // FromYAML reads an IgnoreList from a YAML representation.
