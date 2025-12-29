@@ -102,6 +102,19 @@ func main() {
 		ignoreList = transaction.NewIgnoreList()
 	}
 
+	// Filter out any ignored transfers
+	for i := len(transfers) - 1; i >= 0; i-- {
+		xfr := transfers[i]
+		if ignoreList.IsHashIgnored(xfr.TransactionHash) {
+			slog.DebugContext(
+				ctx,
+				fmt.Sprintf("Ignoring transfer with hash %s as it is present in the ignore list", xfr.TransactionHash),
+			)
+
+			transfers = append(transfers[:i], transfers[i+1:]...)
+		}
+	}
+
 	// Schedule the writing of all ignored entries
 	var writeHandle *os.File
 	if !ignoreFileExists {
@@ -112,7 +125,7 @@ func main() {
 			return
 		}
 	} else {
-		writeHandle, err = os.Open(ignoreListFilename)
+		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY, 0644)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to open file for writing ignore list to file", "err", err)
 
@@ -253,6 +266,7 @@ func runSync(
 		remainingTransfers,
 		tokenDetails,
 		walletAddress,
+		ignoreList,
 	)
 }
 

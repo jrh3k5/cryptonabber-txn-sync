@@ -3,6 +3,7 @@ package transaction
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -34,6 +35,17 @@ func (i *IgnoreList) AddIgnoredHash(transactionHash string) {
 		Reason: fmt.Sprintf("Marked as ignored on %s", time.Now().Format(time.DateOnly)),
 	}
 	i.hashes = append(i.hashes, ignoredHash)
+}
+
+// IsHashIgnored checks if a transaction hash is in the ignore list.
+func (i *IgnoreList) IsHashIgnored(transactionHash string) bool {
+	for _, ignoredHash := range i.hashes {
+		if strings.EqualFold(ignoredHash.Hash, transactionHash) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GetHashCount returns the number of ignored transaction hashes.

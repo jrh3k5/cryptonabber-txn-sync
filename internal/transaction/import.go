@@ -15,6 +15,14 @@ import (
 	"github.com/manifoldco/promptui"
 )
 
+type importTransferAction string
+
+const (
+	importTransferActionCreate importTransferAction = "create"
+	importTransferActionSkip   importTransferAction = "skip"
+	importTransferActionIgnore importTransferAction = "ignore"
+)
+
 type transferImporter struct {
 	httpClient      *http.Client
 	ynabAccessToken string
@@ -22,6 +30,7 @@ type transferImporter struct {
 	accountID       string
 	tokenDetails    *token.Details
 	walletAddress   string
+	ignoreList      *IgnoreList
 	minimumAmount   *big.Int
 }
 
@@ -32,6 +41,7 @@ func newTransferImporter(
 	accountID string,
 	tokenDetails *token.Details,
 	walletAddress string,
+	ignoreList *IgnoreList,
 ) *transferImporter {
 	// Minimum amount threshold in base units: 10^(decimals-2) => 0.01 token
 	minimumAmount := big.NewInt(1)
@@ -44,6 +54,7 @@ func newTransferImporter(
 		accountID:       accountID,
 		tokenDetails:    tokenDetails,
 		walletAddress:   walletAddress,
+		ignoreList:      ignoreList,
 		minimumAmount:   minimumAmount,
 	}
 }
@@ -84,13 +95,31 @@ func (p *transferImporter) processTransfer(
 	}
 
 	// Ask user if they want to create a transaction
-	shouldCreate, err := p.promptCreateTransaction(xfr, isOutbound, counterparty)
+	importAction, err := p.promptCreateTransaction(xfr, isOutbound, counterparty)
 	if err != nil {
 		return err
 	}
 
-	if !shouldCreate {
+	switch importAction {
+	case importTransferActionSkip:
+		// User chose to skip; do nothing
 		return nil
+	case importTransferActionIgnore:
+		// User chose to ignore; add to ignore list
+		slog.DebugContext(
+			ctx,
+			"Ignoring transfer permanently",
+			"transaction_hash",
+			xfr.TransactionHash,
+		)
+
+		p.ignoreList.AddIgnoredHash(xfr.TransactionHash)
+
+		return nil
+	case importTransferActionCreate:
+		// Proceed to create the transaction
+	default:
+		return fmt.Errorf("unknown import action: %s", importAction)
 	}
 
 	// Get transaction details from user
@@ -137,28 +166,42 @@ func (p *transferImporter) isBelowMinimum(
 	return false
 }
 
+// promptCreateTransaction prompts the user to decide whether to create a YNAB transaction for the given transfer.
 func (p *transferImporter) promptCreateTransaction(
 	xfr *Transfer,
 	isOutbound bool,
 	counterparty string,
-) (bool, error) {
+) (importTransferAction, error) {
 	details := p.formatTransferDetails(xfr, isOutbound, counterparty)
+
+	createOption := "Create"
+	skipOption := "Skip (for now)"
+	ignoreOption := "Ignore (skip permanently)"
 
 	selector := promptui.Select{
 		Label: "Create YNAB transaction for " + details + "?",
-		Items: []string{"Create", "Skip"},
+		Items: []string{createOption, skipOption, ignoreOption},
 	}
 
 	selIdx, _, err := selector.Run()
 	if err != nil {
 		if errors.Is(err, promptui.ErrInterrupt) || errors.Is(err, promptui.ErrEOF) {
-			return false, errUserCanceled
+			return importTransferActionSkip, errUserCanceled
 		}
 
-		return false, fmt.Errorf("transaction creation prompt failed: %w", err)
+		return importTransferActionSkip, fmt.Errorf("transaction creation prompt failed: %w", err)
 	}
 
-	return selIdx == 0, nil
+	switch selIdx {
+	case 0:
+		return importTransferActionCreate, nil
+	case 1:
+		return importTransferActionSkip, nil
+	case 2:
+		return importTransferActionIgnore, nil
+	default:
+		return importTransferActionSkip, fmt.Errorf("invalid selection index: %d", selIdx)
+	}
 }
 
 func (p *transferImporter) formatTransferDetails(
@@ -311,6 +354,7 @@ func ImportRemainingTransfers(
 	transfers []*Transfer,
 	tokenDetails *token.Details,
 	walletAddress string,
+	ignoreList *IgnoreList,
 ) error {
 	processor := newTransferImporter(
 		httpClient,
@@ -319,6 +363,7 @@ func ImportRemainingTransfers(
 		accountID,
 		tokenDetails,
 		walletAddress,
+		ignoreList,
 	)
 
 	return processor.processTransfers(ctx, transfers)
