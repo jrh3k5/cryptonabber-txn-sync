@@ -2,6 +2,8 @@ package transaction_test
 
 import (
 	"bytes"
+	"fmt"
+	"time"
 
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
 	. "github.com/onsi/ginkgo/v2"
@@ -9,6 +11,69 @@ import (
 )
 
 var _ = Describe("IgnoreList", func() {
+	Context("AddProcessedHash", func() {
+		It("adds a processed hash with reason, date, and added_on field", func() {
+			ignoreList := transaction.NewIgnoreList()
+			hash := "0xabc"
+			txnID := "tx-123"
+			today := time.Now().Format(time.DateOnly)
+
+			ignoreList.AddProcessedHash(hash, txnID)
+
+			hashes := ignoreList.GetHashes()
+			Expect(hashes).To(HaveLen(1))
+			Expect(hashes[0].Hash).To(Equal(hash))
+			Expect(hashes[0].Reason).To(ContainSubstring(txnID))
+			Expect(hashes[0].Reason).To(ContainSubstring(today))
+
+			var buf bytes.Buffer
+			err := transaction.ToYAML(ignoreList, &buf)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(buf.String()).To(ContainSubstring(fmt.Sprintf("added_on: \"%s\"", today)))
+		})
+
+		It("does not add a duplicate processed hash", func() {
+			ignoreList := transaction.NewIgnoreList()
+			hash := "0xabc"
+
+			ignoreList.AddProcessedHash(hash, "tx-1")
+			ignoreList.AddProcessedHash(hash, "tx-2")
+
+			Expect(ignoreList.GetHashCount()).To(Equal(1))
+		})
+	})
+
+	Context("AddIgnoredHash", func() {
+		It("adds an ignored hash with reason, date, and added_on field", func() {
+			ignoreList := transaction.NewIgnoreList()
+			hash := "0xdef"
+			today := time.Now().Format(time.DateOnly)
+
+			ignoreList.AddIgnoredHash(hash)
+
+			hashes := ignoreList.GetHashes()
+			Expect(hashes).To(HaveLen(1))
+			Expect(hashes[0].Hash).To(Equal(hash))
+			Expect(hashes[0].Reason).To(ContainSubstring("Marked as ignored on "))
+			Expect(hashes[0].Reason).To(ContainSubstring(today))
+
+			var buf bytes.Buffer
+			err := transaction.ToYAML(ignoreList, &buf)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(buf.String()).To(ContainSubstring(fmt.Sprintf("added_on: \"%s\"", today)))
+		})
+
+		It("does not add a duplicate ignored hash", func() {
+			ignoreList := transaction.NewIgnoreList()
+			hash := "0xdef"
+
+			ignoreList.AddIgnoredHash(hash)
+			ignoreList.AddIgnoredHash(hash)
+
+			Expect(ignoreList.GetHashCount()).To(Equal(1))
+		})
+	})
+
 	Context("FromYAML", func() {
 		It("parses a valid YAML ignore list", func() {
 			yaml := `ignored_hashes:

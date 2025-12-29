@@ -21,6 +21,10 @@ func NewIgnoreList() *IgnoreList {
 
 // AddProcessedHash adds a record of a transaction hash being associated to a particular transaction in YNAB.
 func (i *IgnoreList) AddProcessedHash(transactionHash string, ynabTransactionID string) {
+	if i.IsHashIgnored(transactionHash) {
+		return
+	}
+
 	ignoredHash := IgnoredHash{
 		Hash: transactionHash,
 		Reason: fmt.Sprintf(
@@ -35,6 +39,10 @@ func (i *IgnoreList) AddProcessedHash(transactionHash string, ynabTransactionID 
 
 // AddIgnoredHash adds a transaction hash to the ignore list with a reason.
 func (i *IgnoreList) AddIgnoredHash(transactionHash string) {
+	if i.IsHashIgnored(transactionHash) {
+		return
+	}
+
 	ignoredHash := IgnoredHash{
 		Hash:    transactionHash,
 		Reason:  "Marked as ignored on " + time.Now().Format(time.DateOnly),
