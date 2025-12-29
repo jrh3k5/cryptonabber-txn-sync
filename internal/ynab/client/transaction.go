@@ -128,7 +128,11 @@ func parseTransactionsFromBody(body io.Reader) ([]*Transaction, error) {
 	for _, t := range envelope.Data.Transactions {
 		var dt time.Time
 		if t.Date != "" {
-			dt, _ = time.Parse("2006-01-02", t.Date)
+			var err error
+			dt, err = time.Parse("2006-01-02", t.Date)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse transaction date '%s': %w", t.Date, err)
+			}
 		}
 
 		txns = append(txns, &Transaction{
@@ -385,7 +389,11 @@ func CreateTransaction(
 	t := envelope.Data.Transaction
 	var dt time.Time
 	if t.Date != "" {
-		dt, _ = time.Parse("2006-01-02", t.Date)
+		var err error
+		dt, err = time.Parse("2006-01-02", t.Date)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse transaction date '%s': %w", t.Date, err)
+		}
 	}
 
 	return &Transaction{

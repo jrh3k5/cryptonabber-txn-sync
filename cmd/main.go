@@ -26,7 +26,7 @@ const (
 	usdcAddressBase = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 	// YNAB mock values
-	acountName = "Base USDC Hot Storage"
+	accountName = "Base USDC Hot Storage"
 
 	ignoreListFilename = "transaction_hash.ignorelist"
 )
@@ -539,9 +539,13 @@ func selectAccount(
 		return nil, "", fmt.Errorf("failed to retrieve YNAB accounts: %w", err)
 	}
 
-	chosenAccountID, err := findAccountID(accounts, acountName)
+	chosenAccountID, err := findAccountID(accounts, accountName)
 	if err != nil {
-		return nil, "", fmt.Errorf("account '%s' not found in budget '%s'", acountName, budget.Name)
+		return nil, "", fmt.Errorf(
+			"account '%s' not found in budget '%s'",
+			accountName,
+			budget.Name,
+		)
 	}
 
 	return budget, chosenAccountID, nil

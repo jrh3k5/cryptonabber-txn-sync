@@ -144,7 +144,14 @@ func (p *transferImporter) processTransfer(
 	}
 
 	// Create the YNAB transaction
-	return p.createYNABTransaction(ctx, xfr, isOutbound, payeeName, memoText)
+	createdID, err := p.createYNABTransaction(ctx, xfr, isOutbound, payeeName, memoText)
+	if err != nil {
+		return err
+	}
+
+	p.ignoreList.AddProcessedHash(xfr.TransactionHash, createdID)
+
+	return nil
 }
 
 func (p *transferImporter) determineDirection(
@@ -277,8 +284,7 @@ func (p *transferImporter) promptPayeeName(defaultPayee string) (string, error) 
 
 func (p *transferImporter) promptMemo(xfr *Transfer) (string, error) {
 	memoPrompt := promptui.Prompt{
-		Label:   "Memo (will auto-append transaction hash)",
-		Default: xfr.TransactionHash,
+		Label: "Memo (will auto-append transaction hash)",
 	}
 
 	memoText, err := memoPrompt.Run()
@@ -297,16 +303,18 @@ func (p *transferImporter) promptMemo(xfr *Transfer) (string, error) {
 	return memoText, nil
 }
 
+// createYNABTransaction creates a YNAB transaction for the given transfer.
+// If the creation is successful, it returns the created transaction ID.
 func (p *transferImporter) createYNABTransaction(
 	ctx context.Context,
 	xfr *Transfer,
 	isOutbound bool,
 	payeeName string,
 	memoText string,
-) error {
+) (string, error) {
 	amountInt64, err := p.convertToYNABAmount(xfr.Amount, isOutbound)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	cleared := "uncleared"
@@ -321,7 +329,7 @@ func (p *transferImporter) createYNABTransaction(
 
 	created, err := client.CreateTransaction(ctx, p.httpClient, p.ynabAccessToken, p.budgetID, req)
 	if err != nil {
-		return fmt.Errorf("failed to create transaction: %w", err)
+		return "", fmt.Errorf("failed to create transaction: %w", err)
 	}
 
 	slog.InfoContext(
@@ -335,7 +343,7 @@ func (p *transferImporter) createYNABTransaction(
 		created.Payee,
 	)
 
-	return nil
+	return created.ID, nil
 }
 
 func (p *transferImporter) convertToYNABAmount(amount *big.Int, isOutbound bool) (int64, error) {
