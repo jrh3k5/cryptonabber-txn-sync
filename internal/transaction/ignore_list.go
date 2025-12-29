@@ -133,7 +133,7 @@ type yamlIgnoredHash struct {
 	AddedOn string `yaml:"added_on,omitempty"` // date this hash was added to the ignore list
 }
 
-// FromYAML reads an IgnoreList from a YAML representation.
+// yamlIgnoreList is an internal struct for YAML serialization.
 type yamlIgnoreList struct {
 	IgnoredHashes []yamlIgnoredHash `yaml:"ignored_hashes"`
 }
