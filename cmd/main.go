@@ -1,9 +1,14 @@
 package main
 
+// TODO: add all processed hashes to the ignorelist file
+// with a reason that it was processed for transaction ID XXXX on MM/DD/YYYY
+// Also allow additions to the ignore list when prompting for import
+
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +23,8 @@ import (
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/transfer"
 	"github.com/manifoldco/promptui"
+
+	ctsio "github.com/jrh3k5/cryptonabber-txn-sync/internal/io"
 )
 
 const (
@@ -29,6 +36,8 @@ const (
 
 	labelTo   = "to"
 	labelFrom = "from"
+
+	ignoreListFilename = "transaction_hash.ignorelist"
 )
 
 func main() {
@@ -67,6 +76,51 @@ func main() {
 		),
 	)
 
+	ignoreFileExists, err := ctsio.FileExists(ignoreListFilename)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to check for ignore list file", "error", err)
+
+		return
+	}
+
+	var ignoreList *transaction.IgnoreList
+	if ignoreFileExists {
+		readHandle, err := os.Open(ignoreListFilename)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to open ignore list file", "error", err)
+
+			return
+		}
+		defer func() { _ = readHandle.Close() }()
+
+		ignoreList, err = transaction.FromYAML(readHandle)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to parse ignore list file", "error", err)
+
+			return
+		}
+
+		slog.InfoContext(ctx, fmt.Sprintf("Loaded %d entries from ignore list", ignoreList.GetHashCount()))
+	} else {
+		ignoreList = transaction.NewIgnoreList()
+	}
+
+	// Schedule the writing of all ignored entries
+	writeHandle, err := os.Open(ignoreListFilename)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to write ignore list to file", "err", err)
+	}
+	defer func() {
+		_ = writeHandle.Close()
+	}()
+
+	defer func(writer io.Writer) {
+		err := transaction.ToYAML(ignoreList, writer)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to write ignore list to YAML", "err", err)
+		}
+	}(writeHandle)
+
 	ynabAccessToken, err := getAccessToken()
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to get YNAB access token", "error", err)
@@ -74,7 +128,7 @@ func main() {
 		return
 	}
 
-	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers, dryRun); err != nil {
+	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers, dryRun, ignoreList); err != nil {
 		slog.ErrorContext(ctx, "Synchronization failed", "error", err)
 
 		return
@@ -128,6 +182,7 @@ func runSync(
 	walletAddress string,
 	transfers []*transaction.Transfer,
 	dryRun bool,
+	ignoreList *transaction.IgnoreList,
 ) error {
 	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken)
 	if err != nil {
@@ -174,6 +229,7 @@ func runSync(
 		transfers,
 		unclearedTransactions,
 		dryRun,
+		ignoreList,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to process uncleared transactions: %w", err)
@@ -512,6 +568,7 @@ func processUnclearedTransactions(
 	transfers []*transaction.Transfer,
 	unclearedTransactions []*client.Transaction,
 	dryRun bool,
+	ignoreList *transaction.IgnoreList,
 ) ([]*transaction.Transfer, error) {
 	matchedCount := 0
 	unmatchedCount := 0
@@ -562,6 +619,8 @@ func processUnclearedTransactions(
 					err,
 				)
 			}
+
+			ignoreList.AddProcessedHash(matchingTransfer.TransactionHash, unclearedTransaction.ID)
 		}
 
 		// Remove the matched transfer from remainingTransfers to prevent duplicate matches.

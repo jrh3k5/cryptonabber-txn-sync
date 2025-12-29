@@ -3,6 +3,7 @@ package transaction
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -10,6 +11,42 @@ import (
 // IgnoreList represents a list of transaction hashes to be ignored.
 type IgnoreList struct {
 	hashes []IgnoredHash // slice of ignored transaction hashes
+}
+
+// NewIgnoreList creates a new empty IgnoreList.
+func NewIgnoreList() *IgnoreList {
+	return &IgnoreList{}
+}
+
+// AddProcessedHash adds a record of a transaction hash being associated to a particular transaction in YNAB.
+func (i *IgnoreList) AddProcessedHash(transactionHash string, ynabTransactionID string) {
+	ignoredHash := IgnoredHash{
+		Hash:   transactionHash,
+		Reason: fmt.Sprintf("Processed for transaction ID %s on %s", ynabTransactionID, time.Now().Format(time.DateOnly)),
+	}
+	i.hashes = append(i.hashes, ignoredHash)
+}
+
+// AddIgnoredHash adds a transaction hash to the ignore list with a reason.
+func (i *IgnoreList) AddIgnoredHash(transactionHash string) {
+	ignoredHash := IgnoredHash{
+		Hash:   transactionHash,
+		Reason: fmt.Sprintf("Marked as ignored on %s", time.Now().Format(time.DateOnly)),
+	}
+	i.hashes = append(i.hashes, ignoredHash)
+}
+
+// GetHashCount returns the number of ignored transaction hashes.
+func (i *IgnoreList) GetHashCount() int {
+	return len(i.hashes)
+}
+
+// GetHashes returns a copy of the list of ignored transaction hashes.
+func (i *IgnoreList) GetHashes() []IgnoredHash {
+	hashesCopy := make([]IgnoredHash, len(i.hashes))
+	copy(hashesCopy, i.hashes)
+
+	return hashesCopy
 }
 
 // IgnoredHash represents an ignored transaction hash.
@@ -26,7 +63,7 @@ func FromYAML(reader io.Reader) (*IgnoreList, error) {
 		return nil, fmt.Errorf("failed to decode ignore list from YAML: %w", err)
 	}
 
-	ignoreList := &IgnoreList{}
+	ignoreList := NewIgnoreList()
 	for _, ymlHash := range ymlList.IgnoredHashes {
 		ignoredHash := &IgnoredHash{
 			Hash:   ymlHash.Hash,
