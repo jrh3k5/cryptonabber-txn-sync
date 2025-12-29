@@ -778,7 +778,7 @@ func writeIgnoreList(
 		}
 	} else {
 		//nolint:gosec,mnd // no need to keep this at 600 or less
-		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY, 0o644)
+		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY|os.O_TRUNC, 0o644)
 		if err != nil {
 			return fmt.Errorf("failed to open file for writing ignore list to file: %w", err)
 		}
