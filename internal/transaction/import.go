@@ -197,7 +197,7 @@ func (p *transferImporter) promptCreateTransaction(
 		return importTransferActionCreate, nil
 	case 1:
 		return importTransferActionSkip, nil
-	case 2:
+	case 2: //nolint:mnd
 		return importTransferActionIgnore, nil
 	default:
 		return importTransferActionSkip, fmt.Errorf("invalid selection index: %d", selIdx)

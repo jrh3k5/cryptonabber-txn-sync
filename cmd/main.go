@@ -1,9 +1,5 @@
 package main
 
-// TODO: add all processed hashes to the ignorelist file
-// with a reason that it was processed for transaction ID XXXX on MM/DD/YYYY
-// Also allow additions to the ignore list when prompting for import
-
 import (
 	"context"
 	"errors"
@@ -130,6 +126,7 @@ func main() {
 			return
 		}
 	} else {
+		//nolint:gosec,mnd // no need to keep this at 600 or less
 		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY, 0o644)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to open file for writing ignore list to file", "err", err)
@@ -262,7 +259,7 @@ func runSync(
 		return fmt.Errorf("failed to process uncleared transactions: %w", err)
 	}
 
-	return transaction.ImportRemainingTransfers(
+	err = transaction.ImportRemainingTransfers(
 		ctx,
 		httpClient,
 		ynabAccessToken,
@@ -273,6 +270,11 @@ func runSync(
 		walletAddress,
 		ignoreList,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to import remaining transfers: %w", err)
+	}
+
+	return nil
 }
 
 func filterUncleared(transactions []*client.Transaction) []*client.Transaction {

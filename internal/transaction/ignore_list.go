@@ -37,7 +37,7 @@ func (i *IgnoreList) AddProcessedHash(transactionHash string, ynabTransactionID 
 func (i *IgnoreList) AddIgnoredHash(transactionHash string) {
 	ignoredHash := IgnoredHash{
 		Hash:    transactionHash,
-		Reason:  fmt.Sprintf("Marked as ignored on %s", time.Now().Format(time.DateOnly)),
+		Reason:  "Marked as ignored on " + time.Now().Format(time.DateOnly),
 		addedOn: time.Now().Format(time.DateOnly),
 	}
 	i.hashes = append(i.hashes, ignoredHash)
