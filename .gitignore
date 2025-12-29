@@ -39,3 +39,6 @@ dist
 
 # Testing CSV
 export.csv
+
+# Ignore transaction ignore list
+transaction_hash.ignorelist

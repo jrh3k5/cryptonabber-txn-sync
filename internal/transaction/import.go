@@ -1,4 +1,4 @@
-package main
+package transaction
 
 import (
 	"context"
@@ -11,12 +11,11 @@ import (
 	"time"
 
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
-	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
 	"github.com/manifoldco/promptui"
 )
 
-type transferProcessor struct {
+type transferImporter struct {
 	httpClient      *http.Client
 	ynabAccessToken string
 	budgetID        string
@@ -26,19 +25,19 @@ type transferProcessor struct {
 	minimumAmount   *big.Int
 }
 
-func newTransferProcessor(
+func newTransferImporter(
 	httpClient *http.Client,
 	ynabAccessToken string,
 	budgetID string,
 	accountID string,
 	tokenDetails *token.Details,
 	walletAddress string,
-) *transferProcessor {
+) *transferImporter {
 	// Minimum amount threshold in base units: 10^(decimals-2) => 0.01 token
 	minimumAmount := big.NewInt(1)
 	minimumAmount.Exp(big.NewInt(10), big.NewInt(int64(tokenDetails.Decimals-2)), nil) //nolint:mnd
 
-	return &transferProcessor{
+	return &transferImporter{
 		httpClient:      httpClient,
 		ynabAccessToken: ynabAccessToken,
 		budgetID:        budgetID,
@@ -49,9 +48,9 @@ func newTransferProcessor(
 	}
 }
 
-func (p *transferProcessor) processTransfers(
+func (p *transferImporter) processTransfers(
 	ctx context.Context,
-	transfers []*transaction.Transfer,
+	transfers []*Transfer,
 ) error {
 	for _, xfr := range transfers {
 		if err := p.processTransfer(ctx, xfr); err != nil {
@@ -70,9 +69,9 @@ func (p *transferProcessor) processTransfers(
 
 var errUserCanceled = errors.New("user canceled operation")
 
-func (p *transferProcessor) processTransfer(
+func (p *transferImporter) processTransfer(
 	ctx context.Context,
-	xfr *transaction.Transfer,
+	xfr *Transfer,
 ) error {
 	isOutbound, counterparty, ok := p.determineDirection(xfr)
 	if !ok {
@@ -104,8 +103,8 @@ func (p *transferProcessor) processTransfer(
 	return p.createYNABTransaction(ctx, xfr, isOutbound, payeeName, memoText)
 }
 
-func (p *transferProcessor) determineDirection(
-	xfr *transaction.Transfer,
+func (p *transferImporter) determineDirection(
+	xfr *Transfer,
 ) (bool, string, bool) {
 	switch {
 	case strings.EqualFold(xfr.FromAddress, p.walletAddress):
@@ -117,9 +116,9 @@ func (p *transferProcessor) determineDirection(
 	}
 }
 
-func (p *transferProcessor) isBelowMinimum(
+func (p *transferImporter) isBelowMinimum(
 	ctx context.Context,
-	xfr *transaction.Transfer,
+	xfr *Transfer,
 ) bool {
 	if xfr.Amount.Cmp(p.minimumAmount) < 0 {
 		slog.DebugContext(
@@ -138,8 +137,8 @@ func (p *transferProcessor) isBelowMinimum(
 	return false
 }
 
-func (p *transferProcessor) promptCreateTransaction(
-	xfr *transaction.Transfer,
+func (p *transferImporter) promptCreateTransaction(
+	xfr *Transfer,
 	isOutbound bool,
 	counterparty string,
 ) (bool, error) {
@@ -162,8 +161,8 @@ func (p *transferProcessor) promptCreateTransaction(
 	return selIdx == 0, nil
 }
 
-func (p *transferProcessor) formatTransferDetails(
-	xfr *transaction.Transfer,
+func (p *transferImporter) formatTransferDetails(
+	xfr *Transfer,
 	isOutbound bool,
 	counterparty string,
 ) string {
@@ -178,13 +177,13 @@ func (p *transferProcessor) formatTransferDetails(
 		xfr.FormatAmount(p.tokenDetails.Decimals),
 		p.tokenDetails.Name,
 		xfr.ExecutionTime.Format(time.RFC3339),
-		resolveDirection(isOutbound),
+		ResolveDirection(isOutbound),
 		counterparty,
 	)
 }
 
-func (p *transferProcessor) promptTransactionDetails(
-	xfr *transaction.Transfer,
+func (p *transferImporter) promptTransactionDetails(
+	xfr *Transfer,
 	counterparty string,
 ) (string, string, error) {
 	payeeName, err := p.promptPayeeName(counterparty)
@@ -200,7 +199,7 @@ func (p *transferProcessor) promptTransactionDetails(
 	return payeeName, memoText, nil
 }
 
-func (p *transferProcessor) promptPayeeName(defaultPayee string) (string, error) {
+func (p *transferImporter) promptPayeeName(defaultPayee string) (string, error) {
 	payeePrompt := promptui.Prompt{
 		Label:   "Payee name",
 		Default: defaultPayee,
@@ -218,7 +217,7 @@ func (p *transferProcessor) promptPayeeName(defaultPayee string) (string, error)
 	return payeeName, nil
 }
 
-func (p *transferProcessor) promptMemo(xfr *transaction.Transfer) (string, error) {
+func (p *transferImporter) promptMemo(xfr *Transfer) (string, error) {
 	memoPrompt := promptui.Prompt{
 		Label:   "Memo (will auto-append transaction hash)",
 		Default: xfr.TransactionHash,
@@ -240,9 +239,9 @@ func (p *transferProcessor) promptMemo(xfr *transaction.Transfer) (string, error
 	return memoText, nil
 }
 
-func (p *transferProcessor) createYNABTransaction(
+func (p *transferImporter) createYNABTransaction(
 	ctx context.Context,
-	xfr *transaction.Transfer,
+	xfr *Transfer,
 	isOutbound bool,
 	payeeName string,
 	memoText string,
@@ -281,7 +280,7 @@ func (p *transferProcessor) createYNABTransaction(
 	return nil
 }
 
-func (p *transferProcessor) convertToYNABAmount(amount *big.Int, isOutbound bool) (int64, error) {
+func (p *transferImporter) convertToYNABAmount(amount *big.Int, isOutbound bool) (int64, error) {
 	// Convert token amount (base units) to YNAB milliunits
 	// milliunits = amount_base_units * 1000 / 10^decimals
 	//nolint:mnd
@@ -303,17 +302,17 @@ func (p *transferProcessor) convertToYNABAmount(amount *big.Int, isOutbound bool
 	return ynabMilli.Int64(), nil
 }
 
-func importRemainingTransfers(
+func ImportRemainingTransfers(
 	ctx context.Context,
 	httpClient *http.Client,
 	ynabAccessToken string,
 	budgetID string,
 	accountID string,
-	transfers []*transaction.Transfer,
+	transfers []*Transfer,
 	tokenDetails *token.Details,
 	walletAddress string,
 ) error {
-	processor := newTransferProcessor(
+	processor := newTransferImporter(
 		httpClient,
 		ynabAccessToken,
 		budgetID,

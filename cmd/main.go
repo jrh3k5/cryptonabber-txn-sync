@@ -34,9 +34,6 @@ const (
 	// YNAB mock values
 	acountName = "Base USDC Hot Storage"
 
-	labelTo   = "to"
-	labelFrom = "from"
-
 	ignoreListFilename = "transaction_hash.ignorelist"
 )
 
@@ -106,9 +103,21 @@ func main() {
 	}
 
 	// Schedule the writing of all ignored entries
-	writeHandle, err := os.Open(ignoreListFilename)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to write ignore list to file", "err", err)
+	var writeHandle *os.File
+	if !ignoreFileExists {
+		writeHandle, err = os.Create(ignoreListFilename)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to create ignore list file", "err", err)
+
+			return
+		}
+	} else {
+		writeHandle, err = os.Open(ignoreListFilename)
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to open file for writing ignore list to file", "err", err)
+
+			return
+		}
 	}
 	defer func() {
 		_ = writeHandle.Close()
@@ -212,7 +221,7 @@ func runSync(
 			fmt.Sprintf(
 				"  - %s %s %s with description '%s'",
 				unclearedTransaction.GetFormattedAmount(),
-				resolveDirection(unclearedTransaction.IsOutbound()),
+				transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 				unclearedTransaction.Description,
 			),
@@ -235,7 +244,7 @@ func runSync(
 		return fmt.Errorf("failed to process uncleared transactions: %w", err)
 	}
 
-	return importRemainingTransfers(
+	return transaction.ImportRemainingTransfers(
 		ctx,
 		httpClient,
 		ynabAccessToken,
@@ -497,14 +506,6 @@ func isDryRun() bool {
 	return slices.Contains(os.Args[1:], "--dry-run")
 }
 
-func resolveDirection(isOutbound bool) string {
-	if isOutbound {
-		return labelTo
-	}
-
-	return labelFrom
-}
-
 func selectAccount(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -601,7 +602,7 @@ func processUnclearedTransactions(
 			fmt.Sprintf(
 				"Matched transfer of %s %s %s to transaction hash %s",
 				unclearedTransaction.GetFormattedAmount(),
-				resolveDirection(unclearedTransaction.IsOutbound()),
+				transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 				matchingTransfer.TransactionHash,
 			),
@@ -672,7 +673,7 @@ func resolveMatchingTransfer(
 			fmt.Sprintf(
 				"No matching transfer of %s %s %s found",
 				unclearedTransaction.GetFormattedAmount(),
-				resolveDirection(unclearedTransaction.IsOutbound()),
+				transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 			),
 		)
@@ -689,7 +690,7 @@ func resolveMatchingTransfer(
 		promptText := fmt.Sprintf(
 			"Multiple transfers matched the transfer of %s %s %s with memo '%s' on %s; please select the correct one",
 			unclearedTransaction.GetFormattedAmount(),
-			resolveDirection(unclearedTransaction.IsOutbound()),
+			transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 			unclearedTransaction.Payee,
 			unclearedTransaction.Description,
 			unclearedTransaction.Date.Format(time.DateOnly),
@@ -713,7 +714,7 @@ func resolveMatchingTransfer(
 	promptText := fmt.Sprintf(
 		"No transfers matched the transfer of %s %s %s with memo '%s' on %s; please select one from the list of imported transfers",
 		unclearedTransaction.GetFormattedAmount(),
-		resolveDirection(unclearedTransaction.IsOutbound()),
+		transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 		unclearedTransaction.Payee,
 		unclearedTransaction.Description,
 		unclearedTransaction.Date.Format(time.DateOnly),
