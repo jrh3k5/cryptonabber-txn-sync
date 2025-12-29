@@ -25,9 +25,6 @@ const (
 	rpcNodeURLBase  = "https://mainnet.base.org"
 	usdcAddressBase = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
-	// YNAB mock values
-	accountName = "Base USDC Hot Storage"
-
 	ignoreListFilename = "transaction_hash.ignorelist"
 )
 
@@ -47,6 +44,13 @@ func main() {
 	dryRun := isDryRun()
 	if dryRun {
 		slog.InfoContext(ctx, "Running in dry-run mode; no changes will be made to YNAB")
+	}
+
+	accountName, err := getAccountName()
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get YNAB account name", "error", err)
+
+		return
 	}
 
 	ignoreList, err := readIgnoreList(ctx)
@@ -91,7 +95,17 @@ func main() {
 		return
 	}
 
-	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers, dryRun, ignoreList); err != nil {
+	if err := runSync(
+		ctx,
+		httpClient,
+		accountName,
+		tokenDetails,
+		ynabAccessToken,
+		walletAddress,
+		transfers,
+		dryRun,
+		ignoreList,
+	); err != nil {
 		slog.ErrorContext(ctx, "Synchronization failed", "error", err)
 
 		return
@@ -143,6 +157,7 @@ func initRun(
 func runSync(
 	ctx context.Context,
 	httpClient *http.Client,
+	accountName string,
 	tokenDetails *token.Details,
 	ynabAccessToken string,
 	walletAddress string,
@@ -150,7 +165,7 @@ func runSync(
 	dryRun bool,
 	ignoreList *transaction.IgnoreList,
 ) error {
-	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken)
+	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken, accountName)
 	if err != nil {
 		return fmt.Errorf("failed to select an account: %w", err)
 	}
@@ -392,6 +407,24 @@ func getAccessToken() (string, error) {
 	return accessToken, nil
 }
 
+func getAccountName() (string, error) {
+	var accountName string
+	for _, arg := range os.Args[1:] {
+		parsedName, hasPrefix := strings.CutPrefix(arg, "--ynab-account-name=")
+		if hasPrefix {
+			accountName = parsedName
+
+			break
+		}
+	}
+
+	if accountName == "" {
+		return "", errors.New("--ynab-account-name argument is required")
+	}
+
+	return accountName, nil
+}
+
 func getAddress() (string, error) {
 	var address string
 	for _, arg := range os.Args[1:] {
@@ -523,6 +556,7 @@ func selectAccount(
 	ctx context.Context,
 	httpClient *http.Client,
 	ynabAccessToken string,
+	accountName string,
 ) (*client.Budget, string, error) {
 	allBudgets, err := client.GetBudgets(ctx, httpClient, ynabAccessToken)
 	if err != nil {
@@ -541,10 +575,16 @@ func selectAccount(
 
 	chosenAccountID, err := findAccountID(accounts, accountName)
 	if err != nil {
+		accountNames := make([]string, 0, len(accounts))
+		for _, acct := range accounts {
+			accountNames = append(accountNames, acct.Name)
+		}
+
 		return nil, "", fmt.Errorf(
-			"account '%s' not found in budget '%s'",
+			"account '%s' not found in budget '%s' among available choices: %s",
 			accountName,
 			budget.Name,
+			strings.Join(accountNames, ", "),
 		)
 	}
 
