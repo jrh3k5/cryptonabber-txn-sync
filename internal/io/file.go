@@ -14,6 +14,10 @@ func FileExists(filePath string) (bool, error) {
 	case err == nil:
 		return true, nil
 	default:
-		return false, fmt.Errorf("failed to check for existence of file at path '%s': %w", filePath, err)
+		return false, fmt.Errorf(
+			"failed to check for existence of file at path '%s': %w",
+			filePath,
+			err,
+		)
 	}
 }

@@ -17,14 +17,13 @@ import (
 	"strings"
 	"time"
 
+	ctsio "github.com/jrh3k5/cryptonabber-txn-sync/internal/io"
 	ctsslog "github.com/jrh3k5/cryptonabber-txn-sync/internal/logging/slog"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/client"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/ynab/transfer"
 	"github.com/manifoldco/promptui"
-
-	ctsio "github.com/jrh3k5/cryptonabber-txn-sync/internal/io"
 )
 
 const (
@@ -97,7 +96,10 @@ func main() {
 			return
 		}
 
-		slog.InfoContext(ctx, fmt.Sprintf("Loaded %d entries from ignore list", ignoreList.GetHashCount()))
+		slog.InfoContext(
+			ctx,
+			fmt.Sprintf("Loaded %d entries from ignore list", ignoreList.GetHashCount()),
+		)
 	} else {
 		ignoreList = transaction.NewIgnoreList()
 	}
@@ -108,7 +110,10 @@ func main() {
 		if ignoreList.IsHashIgnored(xfr.TransactionHash) {
 			slog.DebugContext(
 				ctx,
-				fmt.Sprintf("Ignoring transfer with hash %s as it is present in the ignore list", xfr.TransactionHash),
+				fmt.Sprintf(
+					"Ignoring transfer with hash %s as it is present in the ignore list",
+					xfr.TransactionHash,
+				),
 			)
 
 			transfers = append(transfers[:i], transfers[i+1:]...)
@@ -125,7 +130,7 @@ func main() {
 			return
 		}
 	} else {
-		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY, 0644)
+		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY, 0o644)
 		if err != nil {
 			slog.ErrorContext(ctx, "Failed to open file for writing ignore list to file", "err", err)
 
