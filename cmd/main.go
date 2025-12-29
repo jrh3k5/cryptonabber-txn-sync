@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	ctsio "github.com/jrh3k5/cryptonabber-txn-sync/internal/io"
 	ctsslog "github.com/jrh3k5/cryptonabber-txn-sync/internal/logging/slog"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/token"
 	"github.com/jrh3k5/cryptonabber-txn-sync/internal/transaction"
@@ -25,10 +26,9 @@ const (
 	usdcAddressBase = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 	// YNAB mock values
-	acountName = "Base USDC Hot Storage"
+	accountName = "Base USDC Hot Storage"
 
-	labelTo   = "to"
-	labelFrom = "from"
+	ignoreListFilename = "transaction_hash.ignorelist"
 )
 
 func main() {
@@ -49,7 +49,24 @@ func main() {
 		slog.InfoContext(ctx, "Running in dry-run mode; no changes will be made to YNAB")
 	}
 
-	walletAddress, tokenAddress, httpClient, tokenDetails, transfers, err := initRun(ctx)
+	ignoreList, err := readIgnoreList(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to read ignore list", "error", err)
+
+		return
+	}
+
+	// Schedule the ignore list to be written
+	defer func() {
+		if err := writeIgnoreList(ignoreList); err != nil {
+			slog.ErrorContext(ctx, "Failed to write ignore list", "error", err)
+		}
+	}()
+
+	walletAddress, tokenAddress, httpClient, tokenDetails, transfers, err := initRun(
+		ctx,
+		ignoreList,
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "Initialization failed", "error", err)
 
@@ -74,7 +91,7 @@ func main() {
 		return
 	}
 
-	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers, dryRun); err != nil {
+	if err := runSync(ctx, httpClient, tokenDetails, ynabAccessToken, walletAddress, transfers, dryRun, ignoreList); err != nil {
 		slog.ErrorContext(ctx, "Synchronization failed", "error", err)
 
 		return
@@ -83,6 +100,7 @@ func main() {
 
 func initRun(
 	ctx context.Context,
+	ignoreList *transaction.IgnoreList,
 ) (
 	string,
 	string,
@@ -117,6 +135,8 @@ func initRun(
 		return "", "", nil, nil, nil, fmt.Errorf("failed to get transfers: %w", err)
 	}
 
+	transfers = filterIgnoredTransfers(ignoreList, transfers)
+
 	return walletAddress, tokenAddress, httpClient, tokenDetails, transfers, nil
 }
 
@@ -128,6 +148,7 @@ func runSync(
 	walletAddress string,
 	transfers []*transaction.Transfer,
 	dryRun bool,
+	ignoreList *transaction.IgnoreList,
 ) error {
 	budget, chosenAccountID, err := selectAccount(ctx, httpClient, ynabAccessToken)
 	if err != nil {
@@ -157,14 +178,14 @@ func runSync(
 			fmt.Sprintf(
 				"  - %s %s %s with description '%s'",
 				unclearedTransaction.GetFormattedAmount(),
-				resolveDirection(unclearedTransaction.IsOutbound()),
+				transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 				unclearedTransaction.Description,
 			),
 		)
 	}
 
-	return processUnclearedTransactions(
+	remainingTransfers, err := processUnclearedTransactions(
 		ctx,
 		httpClient,
 		ynabAccessToken,
@@ -174,7 +195,28 @@ func runSync(
 		transfers,
 		unclearedTransactions,
 		dryRun,
+		ignoreList,
 	)
+	if err != nil {
+		return fmt.Errorf("failed to process uncleared transactions: %w", err)
+	}
+
+	err = transaction.ImportRemainingTransfers(
+		ctx,
+		httpClient,
+		ynabAccessToken,
+		budget.ID,
+		chosenAccountID,
+		remainingTransfers,
+		tokenDetails,
+		walletAddress,
+		ignoreList,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to import remaining transfers: %w", err)
+	}
+
+	return nil
 }
 
 func filterUncleared(transactions []*client.Transaction) []*client.Transaction {
@@ -305,6 +347,23 @@ func chooseTransfer(
 	return sortedTransfers[i-1], nil
 }
 
+// filterIgnoredTransfers removes any transfers from the input slice that are present in the ignore list.
+func filterIgnoredTransfers(
+	ignoreList *transaction.IgnoreList,
+	transfers []*transaction.Transfer,
+) []*transaction.Transfer {
+	filteredTransfers := make([]*transaction.Transfer, 0, len(transfers))
+	for _, xfr := range transfers {
+		if ignoreList.IsHashIgnored(xfr.TransactionHash) {
+			continue
+		}
+
+		filteredTransfers = append(filteredTransfers, xfr)
+	}
+
+	return filteredTransfers
+}
+
 func findAccountID(accounts []*client.Account, name string) (string, error) {
 	for _, acct := range accounts {
 		if acct.Name == name {
@@ -427,12 +486,37 @@ func isDryRun() bool {
 	return slices.Contains(os.Args[1:], "--dry-run")
 }
 
-func resolveDirection(isOutbound bool) string {
-	if isOutbound {
-		return labelTo
+// readIgnoreList reads the ignore list from the ignore list file if it exists.
+func readIgnoreList(ctx context.Context) (*transaction.IgnoreList, error) {
+	ignoreFileExists, err := ctsio.FileExists(ignoreListFilename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for ignore list file: %w", err)
 	}
 
-	return labelFrom
+	var ignoreList *transaction.IgnoreList
+	if ignoreFileExists {
+		readHandle, err := os.Open(ignoreListFilename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open ignore list file: %w", err)
+		}
+		defer func() { _ = readHandle.Close() }()
+
+		ignoreList, err = transaction.FromYAML(readHandle)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse ignore list file: %w", err)
+		}
+
+		slog.InfoContext(
+			ctx,
+			fmt.Sprintf("Loaded %d entries from ignore list", ignoreList.GetHashCount()),
+		)
+
+		return ignoreList, nil
+	}
+
+	ignoreList = transaction.NewIgnoreList()
+
+	return ignoreList, nil
 }
 
 func selectAccount(
@@ -455,9 +539,13 @@ func selectAccount(
 		return nil, "", fmt.Errorf("failed to retrieve YNAB accounts: %w", err)
 	}
 
-	chosenAccountID, err := findAccountID(accounts, acountName)
+	chosenAccountID, err := findAccountID(accounts, accountName)
 	if err != nil {
-		return nil, "", fmt.Errorf("account '%s' not found in budget '%s'", acountName, budget.Name)
+		return nil, "", fmt.Errorf(
+			"account '%s' not found in budget '%s'",
+			accountName,
+			budget.Name,
+		)
 	}
 
 	return budget, chosenAccountID, nil
@@ -486,6 +574,8 @@ func retrieveUnclearedTransactions(
 	return filterUncleared(transactions), nil
 }
 
+// processUnclearedTransactions attempts to match each uncleared transaction with a transfer.
+// It returns any remaining unconsumed transfers after processing.
 func processUnclearedTransactions(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -496,7 +586,8 @@ func processUnclearedTransactions(
 	transfers []*transaction.Transfer,
 	unclearedTransactions []*client.Transaction,
 	dryRun bool,
-) error {
+	ignoreList *transaction.IgnoreList,
+) ([]*transaction.Transfer, error) {
 	matchedCount := 0
 	unmatchedCount := 0
 
@@ -512,7 +603,7 @@ func processUnclearedTransactions(
 			remainingTransfers,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to resolve matching transfer: %w", err)
+			return nil, fmt.Errorf("failed to resolve matching transfer: %w", err)
 		}
 
 		if matchingTransfer == nil {
@@ -528,7 +619,7 @@ func processUnclearedTransactions(
 			fmt.Sprintf(
 				"Matched transfer of %s %s %s to transaction hash %s",
 				unclearedTransaction.GetFormattedAmount(),
-				resolveDirection(unclearedTransaction.IsOutbound()),
+				transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 				matchingTransfer.TransactionHash,
 			),
@@ -546,6 +637,8 @@ func processUnclearedTransactions(
 					err,
 				)
 			}
+
+			ignoreList.AddProcessedHash(matchingTransfer.TransactionHash, unclearedTransaction.ID)
 		}
 
 		// Remove the matched transfer from remainingTransfers to prevent duplicate matches.
@@ -571,7 +664,7 @@ func processUnclearedTransactions(
 		)
 	}
 
-	return nil
+	return remainingTransfers, nil
 }
 
 // resolveMatchingTransfer finds a matching transfer for the given uncleared transaction.
@@ -597,7 +690,7 @@ func resolveMatchingTransfer(
 			fmt.Sprintf(
 				"No matching transfer of %s %s %s found",
 				unclearedTransaction.GetFormattedAmount(),
-				resolveDirection(unclearedTransaction.IsOutbound()),
+				transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 				unclearedTransaction.Payee,
 			),
 		)
@@ -614,7 +707,7 @@ func resolveMatchingTransfer(
 		promptText := fmt.Sprintf(
 			"Multiple transfers matched the transfer of %s %s %s with memo '%s' on %s; please select the correct one",
 			unclearedTransaction.GetFormattedAmount(),
-			resolveDirection(unclearedTransaction.IsOutbound()),
+			transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 			unclearedTransaction.Payee,
 			unclearedTransaction.Description,
 			unclearedTransaction.Date.Format(time.DateOnly),
@@ -638,7 +731,7 @@ func resolveMatchingTransfer(
 	promptText := fmt.Sprintf(
 		"No transfers matched the transfer of %s %s %s with memo '%s' on %s; please select one from the list of imported transfers",
 		unclearedTransaction.GetFormattedAmount(),
-		resolveDirection(unclearedTransaction.IsOutbound()),
+		transaction.ResolveDirection(unclearedTransaction.IsOutbound()),
 		unclearedTransaction.Payee,
 		unclearedTransaction.Description,
 		unclearedTransaction.Date.Format(time.DateOnly),
@@ -666,6 +759,41 @@ func handleMatchedTransaction(
 ) error {
 	if err := client.MarkTransactionClearedAndAppendMemo(ctx, httpClient, accessToken, budgetID, transactionID, txHash); err != nil {
 		return fmt.Errorf("failed to update transaction %s: %w", transactionID, err)
+	}
+
+	return nil
+}
+
+// writeIgnoreList writes the ignore list to the ignore list file.
+func writeIgnoreList(
+	ignoreList *transaction.IgnoreList,
+) error {
+	ignoreFileExists, err := ctsio.FileExists(ignoreListFilename)
+	if err != nil {
+		return fmt.Errorf("failed to check for ignore list file: %w", err)
+	}
+
+	// Schedule the writing of all ignored entries
+	var writeHandle *os.File
+	if !ignoreFileExists {
+		writeHandle, err = os.Create(ignoreListFilename)
+		if err != nil {
+			return fmt.Errorf("failed to create ignore list file: %w", err)
+		}
+	} else {
+		//nolint:gosec,mnd // no need to keep this at 600 or less
+		writeHandle, err = os.OpenFile(ignoreListFilename, os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			return fmt.Errorf("failed to open file for writing ignore list: %w", err)
+		}
+	}
+	defer func() {
+		_ = writeHandle.Close()
+	}()
+
+	err = transaction.ToYAML(ignoreList, writeHandle)
+	if err != nil {
+		return fmt.Errorf("failed to write ignore list to YAML: %w", err)
 	}
 
 	return nil

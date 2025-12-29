@@ -78,3 +78,122 @@ var _ = Describe("GetTransactions", func() {
 		Expect(err).To(HaveOccurred())
 	})
 })
+
+var _ = Describe("CreateTransaction", func() {
+	var ctx context.Context
+
+	BeforeEach(func() {
+		ctx = context.Background()
+	})
+
+	It("creates a transaction with minimal required fields", func() {
+		respBody := `{"data":{"transaction":{"id":"tx-created","account_id":"acct1","date":"2025-12-24","amount":5000,"payee_name":"","memo":"","cleared":"uncleared","approved":false}}}`
+
+		httpmock.RegisterResponder(
+			"POST",
+			"https://api.ynab.com/v1/budgets/budget1/transactions",
+			func(req *http.Request) (*http.Response, error) {
+				Expect(req.Header.Get("Authorization")).To(Equal("Bearer tokengoeshere"))
+				Expect(req.Header.Get("Content-Type")).To(Equal("application/json"))
+
+				return httpmock.NewStringResponse(http.StatusCreated, respBody), nil
+			},
+		)
+
+		txn, err := clientpkg.CreateTransaction(
+			ctx,
+			http.DefaultClient,
+			"tokengoeshere",
+			"budget1",
+			clientpkg.CreateTransactionRequest{
+				AccountID: "acct1",
+				Date:      time.Date(2025, 12, 24, 0, 0, 0, 0, time.UTC),
+				Amount:    5000,
+			},
+		)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(txn).ToNot(BeNil())
+		Expect(txn.ID).To(Equal("tx-created"))
+		Expect(txn.Amount).To(Equal(int64(5000)))
+		Expect(txn.Date.Year()).To(Equal(2025))
+		Expect(txn.Date.Month()).To(Equal(time.December))
+		Expect(txn.Date.Day()).To(Equal(24))
+		Expect(txn.Cleared).To(BeFalse())
+	})
+
+	It("creates a transaction with all optional fields", func() {
+		payeeID := "payee-123"
+		payeeName := "Test Payee"
+		categoryID := "cat-456"
+		memo := "Test transaction memo"
+		cleared := "cleared"
+		approved := true
+		flagColor := "red"
+
+		respBody := `{"data":{"transaction":{"id":"tx-full","account_id":"acct1","date":"2025-12-24","amount":-10000,"payee_id":"payee-123","payee_name":"Test Payee","category_id":"cat-456","memo":"Test transaction memo","cleared":"cleared","approved":true,"flag_color":"red"}}}`
+
+		httpmock.RegisterResponder(
+			"POST",
+			"https://api.ynab.com/v1/budgets/budget1/transactions",
+			func(req *http.Request) (*http.Response, error) {
+				Expect(req.Header.Get("Authorization")).To(Equal("Bearer tokengoeshere"))
+				Expect(req.Header.Get("Content-Type")).To(Equal("application/json"))
+
+				return httpmock.NewStringResponse(http.StatusCreated, respBody), nil
+			},
+		)
+
+		txn, err := clientpkg.CreateTransaction(
+			ctx,
+			http.DefaultClient,
+			"tokengoeshere",
+			"budget1",
+			clientpkg.CreateTransactionRequest{
+				AccountID:  "acct1",
+				Date:       time.Date(2025, 12, 24, 0, 0, 0, 0, time.UTC),
+				Amount:     -10000,
+				PayeeID:    &payeeID,
+				PayeeName:  &payeeName,
+				CategoryID: &categoryID,
+				Memo:       &memo,
+				Cleared:    &cleared,
+				Approved:   &approved,
+				FlagColor:  &flagColor,
+			},
+		)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(txn).ToNot(BeNil())
+		Expect(txn.ID).To(Equal("tx-full"))
+		Expect(txn.Amount).To(Equal(int64(-10000)))
+		Expect(txn.Payee).To(Equal("Test Payee"))
+		Expect(txn.Description).To(Equal("Test transaction memo"))
+		Expect(txn.Cleared).To(BeTrue())
+	})
+
+	It("returns an error on non-201 response", func() {
+		httpmock.RegisterResponder(
+			"POST",
+			"https://api.ynab.com/v1/budgets/budget1/transactions",
+			func(req *http.Request) (*http.Response, error) {
+				return httpmock.NewStringResponse(
+					http.StatusBadRequest,
+					`{"error":{"id":"400","name":"bad_request","detail":"Invalid request"}}`,
+				), nil
+			},
+		)
+
+		_, err := clientpkg.CreateTransaction(
+			ctx,
+			http.DefaultClient,
+			"tokengoeshere",
+			"budget1",
+			clientpkg.CreateTransactionRequest{
+				AccountID: "acct1",
+				Date:      time.Date(2025, 12, 24, 0, 0, 0, 0, time.UTC),
+				Amount:    5000,
+			},
+		)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("400"))
+	})
+})
