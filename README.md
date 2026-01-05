@@ -28,3 +28,4 @@ The tool will read the CSV, fetch token details from the RPC endpoint, find uncl
 - **--ynab-account-name**: (required) The name of the account as it appears in YNAB to which transactions are to be synchronized.
 - **--rpc-url**: (optional) The JSON-RPC endpoint to use for token metadata lookups. Defaults to `https://mainnet.base.org`.
 - **--token-address**: (optional) The token contract address to sync. Defaults to the USDC address configured in the project.
+- **--match-since**: (optional) The date from which to read transactions from YNAB; takes the form of YYYY-MM-DD. If not provided, then the application defaults to seven days prior to the current date.
