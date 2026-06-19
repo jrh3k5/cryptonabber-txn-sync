@@ -170,13 +170,23 @@ func runSync(
 		return fmt.Errorf("failed to select an account: %w", err)
 	}
 
+	matchSince, err := getMatchSince()
+	if err != nil {
+		return fmt.Errorf("failed to get match-since time: %w", err)
+	}
+
+	if matchSince == nil {
+		sevenDays := time.Now().Add(-7 * 24 * time.Hour)
+		matchSince = &sevenDays
+	}
+
 	unclearedTransactions, err := retrieveUnclearedTransactions(
 		ctx,
 		httpClient,
 		ynabAccessToken,
 		budget.ID,
 		chosenAccountID,
-		time.Now().Add(-7*24*time.Hour),
+		*matchSince,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve uncleared transactions: %w", err)
@@ -234,13 +244,21 @@ func runSync(
 	return nil
 }
 
-func filterUncleared(transactions []*client.Transaction) []*client.Transaction {
+func filterUncleared(
+	ctx context.Context,
+	transactions []*client.Transaction,
+) []*client.Transaction {
 	var out []*client.Transaction
 	for _, txn := range transactions {
 		if !txn.Cleared {
 			out = append(out, txn)
 		}
 	}
+
+	slog.DebugContext(
+		ctx,
+		fmt.Sprintf("Reduced transactions down to %d uncleared transactions", len(out)),
+	)
 
 	return out
 }
@@ -443,6 +461,31 @@ func getAddress() (string, error) {
 	return address, nil
 }
 
+// getMatchSince retrieves the --match-since argument if provided, parsing it as a date.
+// If not provided, it returns nil.
+func getMatchSince() (*time.Time, error) {
+	var sinceStr string
+	for _, arg := range os.Args[1:] {
+		parsedSince, hasPrefix := strings.CutPrefix(arg, "--match-since=")
+		if hasPrefix {
+			sinceStr = parsedSince
+
+			break
+		}
+	}
+
+	if sinceStr == "" {
+		return nil, nil
+	}
+
+	parsedTime, err := time.Parse(time.DateOnly, sinceStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse --match-since time: %w", err)
+	}
+
+	return &parsedTime, nil
+}
+
 func getRPCURL() string {
 	var rpcURL string
 	for _, arg := range os.Args[1:] {
@@ -611,7 +654,9 @@ func retrieveUnclearedTransactions(
 		return nil, fmt.Errorf("failed to get transactions: %w", err)
 	}
 
-	return filterUncleared(transactions), nil
+	slog.DebugContext(ctx, fmt.Sprintf("Retrieved %d transactions", len(transactions)))
+
+	return filterUncleared(ctx, transactions), nil
 }
 
 // processUnclearedTransactions attempts to match each uncleared transaction with a transfer.
